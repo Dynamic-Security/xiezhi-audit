@@ -1,0 +1,8 @@
+# Non-HTTP entries: gRPC services (`< Pkg::Service::Service`), Sidekiq / ActiveJob / Resque / Shoryuken / Sneakers jobs, schedules (sidekiq-cron / sidekiq-scheduler YAML, whenever config/schedule.rb), Rake tasks.
+id: ruby.channels.channels
+version: 1
+kind: entrypoint
+lang: ruby
+framework: channels
+grammar: tree-sitter-ruby@0.23
+post: ruby_channels

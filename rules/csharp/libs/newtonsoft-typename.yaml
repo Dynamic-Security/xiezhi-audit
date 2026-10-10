@@ -1,0 +1,14 @@
+# Json.NET deserialization in a file that enables TypeNameHandling other than None.
+id: csharp.libs.newtonsoft-typename
+version: 1
+kind: sink
+lang: csharp
+framework: libs
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: deserialization
+cwe: [CWE-502]
+severityHint: high
+api: "Json.NET {method} with TypeNameHandling"
+match: { receiverTypes: [JsonConvert, JsonSerializer], receiverNamePattern: '(?i)json|serializer' }
+post: csharp_json_typename

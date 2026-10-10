@@ -1,0 +1,13 @@
+# business-sensitive point: a resource read / changed by id — where an ownership (IDOR) check must hold.
+id: kotlin.business.find-by-id
+version: 1
+kind: sink
+lang: kotlin
+framework: business
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: authz_object
+cwe: [CWE-639]
+severityHint: medium
+api: "按 ID 访问资源 {method}(…)"
+match: { minArgs: 1, notReceiverTextPattern: '^(this|super|map|cache|list|Map|List|Optional|Objects)$' }

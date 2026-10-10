@@ -1,0 +1,11 @@
+# Slim — $app|$group->get|post|put|patch|delete|options|any|map(path, handler) with ->group('/p', fn) prefixes;
+# ->add(mw) on the route, its groups and (same file) $app are middlewares; handlers 'Class:method', [Class::class, 'm'],
+# Class::class or closures. Selected by an import of Slim\ or the slim/slim dependency.
+id: php.slim.route
+version: 1
+kind: entrypoint
+lang: php
+framework: slim
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", verb: "@verb" }
+post: php_slim_route

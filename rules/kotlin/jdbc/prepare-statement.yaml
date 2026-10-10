@@ -1,0 +1,12 @@
+id: kotlin.jdbc.prepare-statement
+version: 1
+kind: sink
+lang: kotlin
+framework: jdbc
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "java.sql.Connection#{method}(String)"
+match: { receiverTypes: [Connection], receiverNamePattern: '(?i)conn|connection|getConnection', minArgs: 1 }

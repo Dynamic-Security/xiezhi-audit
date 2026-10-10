@@ -1,0 +1,8 @@
+# Rails config/routes.rb (and config/routes/*.rb): resources / resource / namespace / scope / member / collection / concerns / verb routes, resolved to controller actions with the callbacks guarding them.
+id: ruby.rails.routes
+version: 1
+kind: entrypoint
+lang: ruby
+framework: rails
+grammar: tree-sitter-ruby@0.23
+post: ruby_rails_routes

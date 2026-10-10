@@ -1,0 +1,14 @@
+# Next.js `redirect(url)` / `permanentRedirect(url)` (next/navigation) with a non-literal target.
+id: js.nextjs.redirect
+version: 1
+kind: sink
+lang: javascript
+framework: nextjs
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", method: "@method", args: "@args" }
+category: open_redirect
+cwe: [CWE-601]
+severityHint: medium
+api: "{method}"
+match: { receiverImportAny: [next/navigation], minArgs: 1 }
+post: js_sink_redirect_target

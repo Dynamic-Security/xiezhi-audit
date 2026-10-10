@@ -1,0 +1,11 @@
+# Laravel routes: Route::get/post/.../match/any, resource / apiResource, with prefix / middleware / controller
+# groups (fluent chains and Route::group arrays) in the same file; routes/api.php carries the framework's /api prefix.
+id: php.laravel.route
+version: 1
+kind: entrypoint
+lang: php
+framework: laravel
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { notImportAny: ['think\facade\Route', 'think\Route'] }
+post: php_laravel_route

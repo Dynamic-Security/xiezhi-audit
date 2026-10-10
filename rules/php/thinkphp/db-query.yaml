@@ -1,0 +1,13 @@
+# ThinkPHP Db facade raw query / execute.
+id: php.thinkphp.db-query
+version: 1
+kind: sink
+lang: php
+framework: thinkphp
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "Db::{method}"
+match: { receiverTextPattern: '^\\?(think\\facade\\)?Db$', minArgs: 1 }

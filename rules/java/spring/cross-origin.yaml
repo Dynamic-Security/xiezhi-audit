@@ -1,0 +1,12 @@
+# `@CrossOrigin` on a controller or handler — which origins may call it with credentials.
+id: java.spring.cross-origin
+version: 1
+kind: sink
+lang: java
+framework: spring
+grammar: tree-sitter-java@0.23
+captures: { call: "@call" }
+category: cors
+cwe: [CWE-942]
+severityHint: low
+api: "@CrossOrigin"

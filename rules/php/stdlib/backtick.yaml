@@ -1,0 +1,12 @@
+# Backtick operator: runs its (interpolated) contents in a shell.
+id: php.command.backtick
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", args: "@call" }
+category: cmdi
+cwe: [CWE-78]
+severityHint: critical
+api: "`backtick`"

@@ -1,0 +1,11 @@
+# Struts 2 actions — struts*.xml <action name class method> (package namespace, wildcard name="x_*"
+# method="{1}" over the class's public methods, interceptor-refs or the package default) and Convention-plugin
+# @Action / @Actions under @Namespace. URLs end with the action extension (.action unless configured).
+id: java.struts2.action
+version: 1
+kind: entrypoint
+lang: java
+framework: struts2
+grammar: tree-sitter-java@0.23
+captures: { class: "@class" }
+post: java_struts_action

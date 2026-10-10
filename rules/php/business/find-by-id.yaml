@@ -1,0 +1,13 @@
+# business-sensitive point: an ORM / repository load of one record by id (Eloquent find / findOrFail, Doctrine find / findOneBy, ThinkPHP find) where an ownership check must hold.
+id: php.business.find-by-id
+version: 1
+kind: sink
+lang: php
+framework: business
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: authz_object
+cwe: [CWE-639]
+severityHint: medium
+api: "按 ID 访问资源 {method}(…)"
+match: { notReceiverTextPattern: '^\\?(DB|Db|Route|Cache|Config|Session|Storage|Arr|Str|Http|Auth|Validator|Log|Redirect|Response|Request|View|App|Gate|Event|Queue|Mail|Hash|Crypt|Cookie|URL|File|Lang|Schema|Carbon|Collection|Process|Blade|self|static|parent)$', receiverNamePattern: '(?i)^\\?[A-Z]\w*(\\\w+)*$|repo|model|query|dao|mapper|\bem\b|manager|store|service|svc|orm|::where|->where|::with|->with|::query|db::name|db::table', minArgs: 1 }

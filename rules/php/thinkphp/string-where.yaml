@@ -1,0 +1,14 @@
+# A string condition built by concatenation / interpolation (ThinkPHP where / whereRaw / order, Laravel where with a raw string).
+id: php.thinkphp.string-where
+version: 1
+kind: sink
+lang: php
+framework: thinkphp
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{method}(string)"
+match: { minArgs: 1 }
+post: php_dynamic_arg

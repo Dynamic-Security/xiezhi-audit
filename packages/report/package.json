@@ -1,0 +1,27 @@
+{
+  "name": "@xiezhi/report",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "@xiezhi/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@xiezhi/contracts": "workspace:*",
+    "@xiezhi/store": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/sarif": "2.1.7"
+  }
+}

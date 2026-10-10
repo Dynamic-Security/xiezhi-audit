@@ -1,0 +1,15 @@
+# $wpdb->get_results / get_row / get_var / get_col / query with SQL built by concatenation or interpolation
+# ($wpdb->prepare(…) as the argument is not built here).
+id: php.wordpress.wpdb
+version: 1
+kind: sink
+lang: php
+framework: wordpress
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "$wpdb->{method}"
+match: { receiverTextPattern: '(?i)wpdb', minArgs: 1 }
+post: php_wpdb_sql

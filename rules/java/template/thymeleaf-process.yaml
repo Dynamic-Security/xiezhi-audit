@@ -1,0 +1,14 @@
+# Thymeleaf renders a template that is not a constant name (`templateEngine.process(userTemplate, ctx)`; with a
+# StringTemplateResolver the argument is the template source). `process("mail/welcome", ctx)` is not reported.
+id: java.template.thymeleaf-process
+version: 1
+kind: sink
+lang: java
+framework: template
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: ssti
+cwe: [CWE-1336]
+severityHint: high
+api: "org.thymeleaf.{receiverType}#process(String, IContext)"
+match: { receiverTypes: [TemplateEngine, SpringTemplateEngine, ITemplateEngine, SpringWebFluxTemplateEngine], receiverNamePattern: '(?i)templateengine|thymeleaf', minArgs: 2 }

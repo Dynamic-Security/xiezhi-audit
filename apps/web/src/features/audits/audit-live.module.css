@@ -1,0 +1,19 @@
+.card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-elevated); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-sm); line-height: 1.55; }
+.head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.link { font-size: var(--fs-xs); display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.meta { font-size: var(--fs-xs); color: var(--text-3); }
+.note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-2); }
+.section { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+.sectionHead { font-size: var(--fs-xs); color: var(--text-3); font-weight: 500; }
+.q { display: flex; flex-direction: column; gap: 6px; }
+.qOpen { background: var(--accent-soft); border-radius: var(--radius); padding: 8px 10px; }
+.qText { display: flex; align-items: flex-start; gap: 6px; font-weight: 500; overflow-wrap: anywhere; }
+.qText svg { margin-top: 3px; flex: none; color: var(--accent); }
+.qAnswer { color: var(--text-2); padding-left: 19px; overflow-wrap: anywhere; }
+.quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.answerRow { display: flex; gap: 6px; }
+.answerRow input { height: 30px; }
+.intervention { display: flex; flex-direction: column; gap: 2px; }
+.tag { display: inline-block; font-size: 11px; color: var(--accent-text); font-weight: 600; margin-right: 6px; }
+.receipt { display: flex; align-items: center; gap: 4px; font-size: var(--fs-xs); color: var(--text-3); }
+.offer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--ok-soft); border-radius: var(--radius); padding: 8px 10px; }

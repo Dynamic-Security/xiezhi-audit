@@ -1,0 +1,11 @@
+# CodeIgniter 3 default routing — classes extending CI_Controller / MY_Controller / *_Controller under
+# controllers/ → /<dir>/<class>/<method> for public methods not starting with _; a custom base class and a login
+# check in __construct (session / auth + redirect) are middlewares.
+id: php.codeigniter.ci3-controller
+version: 1
+kind: entrypoint
+lang: php
+framework: codeigniter
+grammar: tree-sitter-php@0.24
+captures: { class: "@class" }
+post: php_ci3_controller

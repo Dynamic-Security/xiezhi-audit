@@ -1,0 +1,10 @@
+# go-chi routes (navidrome). `r.Route(prefix, func(r chi.Router){…})` groups are not resolved.
+id: go.chi.route
+version: 1
+kind: entrypoint
+lang: go
+framework: chi
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { requiresImportAny: [github.com/go-chi/chi/v5, github.com/go-chi/chi] }
+post: go_router_route

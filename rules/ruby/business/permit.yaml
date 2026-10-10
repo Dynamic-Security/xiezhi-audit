@@ -1,0 +1,13 @@
+# Mass assignment: params.permit! or permit(…) of privilege / ownership fields (role, admin, user_id, balance…).
+id: ruby.business.permit
+version: 1
+kind: sink
+lang: ruby
+framework: business
+grammar: tree-sitter-ruby@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: business_logic
+cwe: [CWE-915]
+severityHint: medium
+api: "{method}"
+post: ruby_permit

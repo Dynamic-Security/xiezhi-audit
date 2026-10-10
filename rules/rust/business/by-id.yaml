@@ -1,0 +1,14 @@
+# business-sensitive point: sea-orm Entity::find_by_id(id) / diesel table.find(id) with a non-constant id — where an ownership check must hold.
+id: rust.business.by-id
+version: 1
+kind: sink
+lang: rust
+framework: business
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: authz_object
+cwe: [CWE-639]
+severityHint: medium
+api: "按 ID 访问资源 {receiver}::{method}(…)"
+match: { receiverTextPattern: "(Entity|Model)$" }
+post: rust_nonconst

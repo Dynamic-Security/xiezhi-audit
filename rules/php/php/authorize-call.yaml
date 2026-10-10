@@ -1,0 +1,9 @@
+# In-action authorization checks: Laravel $this->authorize(...) / Gate::authorize(...), Symfony denyAccessUnlessGranted(...).
+id: php.authorize-call
+version: 1
+kind: auth_signal
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call" }
+post: php_authorize_call

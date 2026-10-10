@@ -1,0 +1,16 @@
+# a GORM inline condition (`db.Find(&album, cond)`) that is a request string. GORM treats a string
+# condition as raw SQL (only numbers are primary keys), so a path / query / form value there is SQL injection.
+# The post function keeps only conditions taken from the request without a numeric conversion.
+id: go.gorm.request-condition
+version: 1
+kind: sink
+lang: go
+framework: gorm
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", cond: "@cond" }
+category: sqli
+cwe: [CWE-89]
+severityHint: critical
+post: go_gorm_request_condition
+api: "gorm {method}(dest, 请求字符串作为内联条件)"
+match: { requiresImportAny: [gorm.io/gorm, github.com/jinzhu/gorm], receiverNamePattern: '(?i)db|tx|gorm|orm|repo|store|sess', notReceiverTextPattern: '^(http|json|os|exec|c|ctx|r|req|w)$', minArgs: 2 }

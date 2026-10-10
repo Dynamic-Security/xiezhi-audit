@@ -1,0 +1,15 @@
+# OSV.dev API (https://google.github.io/osv.dev/post-v1-query/)
+operations:
+  - name: osv_query
+    kind: read
+    description: 查询一个包的某个版本受哪些已知漏洞影响（ecosystem 例如 Maven、Go、npm、PyPI、Packagist、NuGet）
+    method: POST
+    path: /v1/query
+    body:
+      package: { name: "{name}", ecosystem: "{ecosystem}" }
+      version: "{version}"
+    params:
+      name: { type: string, maxLength: 300, required: true }
+      ecosystem: { type: string, enum: [Maven, Go, npm, PyPI, Packagist, NuGet], required: true }
+      version: { type: string, maxLength: 100, required: true }
+    response: { extract: "$.vulns[*].{id,summary,aliases,database_specific.severity}", max_bytes: 32768 }

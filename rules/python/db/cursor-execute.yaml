@@ -1,0 +1,13 @@
+# DB-API / SQLAlchemy / Django connection raw SQL: cursor.execute(sql), conn.execute, session.execute (taint from the SQL argument).
+id: python.db.cursor-execute
+version: 1
+kind: sink
+lang: python
+framework: db
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{receiver}.{method}"
+match: { receiverNamePattern: '(?i)cur|conn|db|session|engine|tx|transaction|sql|database|connection|client', notReceiverTextPattern: '^(subprocess|os|asyncio|self\.loop|loop|executor|pool)$', minArgs: 1 }

@@ -1,0 +1,14 @@
+# business-sensitive point: a resource read / changed by id — the place an ownership
+# (IDOR) check must hold. Repository, mapper and service call sites.
+id: java.business.find-by-id
+version: 1
+kind: sink
+lang: java
+framework: business
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: authz_object
+cwe: [CWE-639]
+severityHint: medium
+api: "按 ID 访问资源 {method}(…)"
+match: { minArgs: 1, notReceiverTextPattern: '^(this|super|map|cache|list|Map|List|Optional|Objects)$' }

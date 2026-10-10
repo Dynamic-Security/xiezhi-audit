@@ -1,0 +1,10 @@
+# JAX-RS resource methods (traccar): @GET/@POST/… with class- and method-level @Path. The servlet /
+# application mapping prefix (e.g. /api) is not in the annotations; entry matching tolerates prefixes.
+id: java.jaxrs.resource
+version: 1
+kind: entrypoint
+lang: java
+framework: jaxrs
+grammar: tree-sitter-java@0.23
+captures: { handler: "@method", annotation: "@annotation" }
+post: jaxrs_resource

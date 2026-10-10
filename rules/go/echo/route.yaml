@@ -1,0 +1,9 @@
+id: go.echo.route
+version: 1
+kind: entrypoint
+lang: go
+framework: echo
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { requiresImportAny: [github.com/labstack/echo/v4, github.com/labstack/echo] }
+post: go_router_route

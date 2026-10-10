@@ -1,0 +1,14 @@
+# business-sensitive point: EF / repository lookup by id (Find, FindAsync, FirstOrDefault(x => x.Id == id)) — where an ownership check must hold.
+id: csharp.business.find-by-id
+version: 1
+kind: sink
+lang: csharp
+framework: business
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: authz_object
+cwe: [CWE-639]
+severityHint: medium
+api: "按 ID 访问资源 {method}(…)"
+match: { minArgs: 1, notReceiverTextPattern: '^(this|base|list|items|cache|_cache|dict|map|Array|List|Enumerable|Path|File|Directory|Regex|string|String)$' }
+post: csharp_by_id

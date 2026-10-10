@@ -1,0 +1,8 @@
+id: kotlin.ktor.install-auth
+version: 1
+kind: auth_signal
+lang: kotlin
+framework: ktor
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call" }
+post: kotlin_ktor_install_auth

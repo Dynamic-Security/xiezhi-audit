@@ -1,0 +1,9 @@
+# hapi `server.auth.default(strategy)` — every route requires that strategy unless it sets `auth: false`.
+id: js.hapi.auth-default
+version: 1
+kind: auth_signal
+lang: javascript
+framework: hapi
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call" }
+post: js_security_config

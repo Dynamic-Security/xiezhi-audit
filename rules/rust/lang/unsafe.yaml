@@ -1,0 +1,11 @@
+# unsafe blocks (memory-safety review hint; not a vulnerability by itself).
+id: rust.lang.unsafe
+version: 1
+kind: sink
+lang: rust
+framework: lang
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: other
+severityHint: low
+api: "unsafe 块"

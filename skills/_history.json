@@ -1,0 +1,45 @@
+{
+ "authz-judgement-method.md": [
+  "b3f40320054db7a7791cc6bab341bce533ae6938c25989575641774fec2f38ba"
+ ],
+ "connector-setup-guide.md": [
+  "44be708b6ccc43dbd981877b10409360397275c38ca274679b18c0990a52646d",
+  "4536015891fc89d1f96f73a6a872b891be88be41174b35a403f73db1b6810d19",
+  "82422615afa6a758b56d8ccab2eedaa78fbbb832667e12c491eb60f866b0236b"
+ ],
+ "feishu-doc-read.md": [
+  "da455036968cdf3f9494ee1b50d702673d24f88508587bdecac037a19c0568b0"
+ ],
+ "feishu-doc-threat-model-sync": [
+  "5996399a4d4692eb43b65f6f2bf12c19b68835b7e29e6002f2798ba2d90f8ce7"
+ ],
+ "javascript-audit-method.md": [
+  "ea2ff2bd95e4c2c0191baba6f754bd5d95309206fb690a7e4eeb3fc342b23cde"
+ ],
+ "jira-issue-push": [
+  "614e802c63e6073be719187d5f6f3bc99cbd633ea74554152c8b14aeba2e86d4",
+  "7c7d439f6dcc69a3cace090dfbccf152293dea54032a9067bb4879fc6142ade6",
+  "98b5ab1129e40538a866a4aae6a7c729f04b64627f2e5cdeb2f36b497b13d644"
+ ],
+ "meegle-defect-push": [
+  "28289a3e4a90ee86510599200e048b85e31fbe03f560ca28ede3d2ed521ef902",
+  "5dd4b7113a71b8d84006b3a6d6d5283b1e3e6a5c55ef4191a6ad30fdf545d79b",
+  "e849c1d460f0221b6b7f5dd398c8c8115ad97483a6842e94d999d4fa0b021557"
+ ],
+ "nextjs-nuxt-audit-method.md": [
+  "80574f6ab1d18f111a26d6977b8ed73cf2ce62f43c223eebd29e9a7b921e615c"
+ ],
+ "php-audit-method.md": [
+  "58aed75dd18dfd3404499b47b19c1388bc62b1845a1685c96b6737cb6012a323"
+ ],
+ "python-async-web-audit-method.md": [
+  "26a9b8d1838345f5a0ecac503af1b86445b883b44890b50857a47f75ce9d0b8d"
+ ],
+ "python-audit-method.md": [
+  "b1477af4e60d0461c94959e4e64f0e1a647c785772993d2d56a6717c34d6ed25"
+ ],
+ "session-transport-checklist.md": [
+  "11546d56bb1cce78ef07659aa6114e2e0156071479472a11388db6dd5f79c10c",
+  "437745a6fd4581206a5a85c7f7c10cd7c2d37096e41a6e10cdb92484befbb0e2"
+ ]
+}

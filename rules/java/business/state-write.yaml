@@ -1,0 +1,14 @@
+# business-sensitive point: a write to a state / role / flag field. Only used when
+# strategy.stages.logicReview is on (ruleId contains ".business."); never a vulnerability by itself.
+id: java.business.state-write
+version: 1
+kind: sink
+lang: java
+framework: business
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: business_logic
+cwe: [CWE-840]
+severityHint: medium
+api: "业务状态写入 {method}(…)"
+match: { minArgs: 1 }

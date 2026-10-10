@@ -1,0 +1,12 @@
+# print of request superglobals without an HTML encoder (reflected output).
+id: php.xss.print-input
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", args: "@call" }
+category: xss
+cwe: [CWE-79]
+severityHint: medium
+api: "print $_*"

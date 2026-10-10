@@ -1,0 +1,30 @@
+.hero { text-align: center; padding: 36px 0 12px; }
+.heroTitle { font-size: 30px; font-weight: 650; letter-spacing: -.02em; margin-bottom: 8px; }
+.quick { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 20px; }
+.quickBtn {
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--bg-elevated); color: var(--text-2); font-size: var(--fs-sm); cursor: pointer; transition: all .15s;
+}
+.quickBtn:hover { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
+.list { padding: 4px; }
+.item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--radius); color: var(--text); text-decoration: none !important; }
+.item:hover { background: var(--bg-hover); }
+.itemIcon { width: 32px; height: 32px; border-radius: 9px; background: var(--bg-muted); display: grid; place-items: center; color: var(--text-2); flex: none; }
+.itemTitle { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.itemMeta { font-size: var(--fs-xs); color: var(--text-3); margin-top: 2px; }
+.emptyLine { display: flex; align-items: center; gap: 10px; padding: 14px 16px; color: var(--text-3); font-size: var(--fs-sm); }
+.riskGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.risk {
+  display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: var(--radius-lg); border: 1px solid var(--border);
+  background: var(--bg-elevated); color: var(--text); text-decoration: none !important; transition: border-color .15s, box-shadow .15s;
+}
+.risk:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+.riskName { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.riskNums { display: flex; flex-wrap: wrap; gap: 8px; min-height: 24px; align-items: center; font-size: var(--fs-sm); }
+.riskNum { display: inline-flex; align-items: center; gap: 4px; }
+.composer { max-width: 720px; margin: 20px auto 0; text-align: left; }
+
+/* Connector write requests. */
+.writeItem { align-items: flex-start; cursor: default; }
+.writeToggle { border: none; background: none; padding: 0; margin-top: 4px; color: var(--accent-text); font-size: 12px; cursor: pointer; }
+.writeArgs { margin: 6px 0 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2, var(--bg)); font-size: 12px; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-all; }

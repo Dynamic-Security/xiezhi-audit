@@ -1,0 +1,10 @@
+# Global / router-level middleware whose name looks like authentication (app.use(passport.authenticate('jwt')),
+# router.use(requireAuth), app.use(expressjwt({…})), fastify.addHook('onRequest', fastify.authenticate)).
+id: js.express.auth-middleware
+version: 1
+kind: auth_signal
+lang: javascript
+framework: express
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", args: "@args" }
+post: js_use_auth

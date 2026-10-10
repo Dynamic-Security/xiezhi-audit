@@ -1,0 +1,13 @@
+# Content(…, "text/html") returns raw HTML.
+id: csharp.aspnetcore.content-html
+version: 1
+kind: sink
+lang: csharp
+framework: aspnetcore
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: xss
+cwe: [CWE-79]
+severityHint: medium
+api: "ControllerBase.Content(html, \"text/html\")"
+match: { minArgs: 2 }

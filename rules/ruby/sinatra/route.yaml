@@ -1,0 +1,8 @@
+# Sinatra routes (classic `require "sinatra"` and Sinatra::Base subclasses): verb blocks, namespaces, before filters, mount prefixes from config.ru / routes.rb.
+id: ruby.sinatra.route
+version: 1
+kind: entrypoint
+lang: ruby
+framework: sinatra
+grammar: tree-sitter-ruby@0.23
+post: ruby_sinatra_routes

@@ -1,0 +1,12 @@
+# include / require of a path containing a variable (local / remote file inclusion).
+id: php.file.include
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", args: "@call" }
+category: path_traversal
+cwe: [CWE-98]
+severityHint: high
+api: "include"

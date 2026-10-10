@@ -1,0 +1,13 @@
+# Laravel file responses and Storage access by path.
+id: php.laravel.file-response
+version: 1
+kind: sink
+lang: php
+framework: laravel
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: path_traversal
+cwe: [CWE-22]
+severityHint: medium
+api: "{receiver}::{method}"
+match: { receiverTextPattern: '^(response\(\)|\\?Storage(::disk\(.*\))?|\\?(Illuminate\\Support\\Facades\\)?Storage)$', minArgs: 1 }

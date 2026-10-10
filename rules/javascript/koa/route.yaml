@@ -1,0 +1,11 @@
+# @koa/router / koa-router: router.get([name,] path, ...middlewares, handler); new Router({ prefix }), router.prefix(),
+# router.use(mw), parent.use('/p', child.routes()).
+id: js.koa.route
+version: 1
+kind: entrypoint
+lang: javascript
+framework: koa
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { requiresImportAny: ["@koa/router", koa-router, koa-tree-router] }
+post: js_router_route

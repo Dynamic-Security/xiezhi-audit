@@ -1,0 +1,12 @@
+id: go.sql.query
+version: 2
+kind: sink
+lang: go
+framework: stdlib
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{importPath}.{method}"
+match: { requiresImportAny: [database/sql, github.com/jmoiron/sqlx, gorm.io/gorm, github.com/jinzhu/gorm, github.com/jackc/pgx, github.com/jackc/pgx/v4, github.com/jackc/pgx/v5, github.com/jackc/pgx/v4/pgxpool, github.com/jackc/pgx/v5/pgxpool, github.com/jackc/pgconn, github.com/jackc/pgx/v5/pgconn], receiverNamePattern: '(?i)db|tx|conn|stmt|sqlx|gorm|repo|store|pool|pgx|querier', notReceiverTextPattern: '^(http|json|os|exec|c|ctx|r|req|w)$', minArgs: 1 }

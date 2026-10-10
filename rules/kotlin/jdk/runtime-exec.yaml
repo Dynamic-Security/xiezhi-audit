@@ -1,0 +1,12 @@
+id: kotlin.jdk.runtime-exec
+version: 1
+kind: sink
+lang: kotlin
+framework: jdk
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: cmdi
+cwe: [CWE-78]
+severityHint: critical
+api: "java.lang.Runtime#exec(String)"
+match: { receiverTypes: [Runtime], receiverNamePattern: 'getRuntime|[Rr]untime', minArgs: 1 }

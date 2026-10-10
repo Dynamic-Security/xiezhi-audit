@@ -1,0 +1,14 @@
+# std::fs / tokio::fs / File / NamedFile operations on a non-constant path.
+id: rust.stdlib.fs
+version: 1
+kind: sink
+lang: rust
+framework: stdlib
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: path_traversal
+cwe: [CWE-22]
+severityHint: medium
+api: "{receiver}::{method}"
+match: { receiverTextPattern: "(^|::)(fs|File|NamedFile|OpenOptions)$" }
+post: rust_nonconst

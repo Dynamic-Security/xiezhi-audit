@@ -1,0 +1,13 @@
+# Object.const_get / Module#const_get with a name from request data.
+id: ruby.stdlib.const-get
+version: 1
+kind: sink
+lang: ruby
+framework: stdlib
+grammar: tree-sitter-ruby@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: code_injection
+cwe: [CWE-470]
+severityHint: medium
+api: "{receiver}.const_get"
+post: ruby_request_name

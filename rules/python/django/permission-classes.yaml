@@ -1,0 +1,9 @@
+# DRF permission_classes / authentication_classes on a view or viewset (AllowAny is not an auth signal).
+id: python.django.permission-classes
+version: 1
+kind: auth_signal
+lang: python
+framework: django
+grammar: tree-sitter-python@0.25
+captures: { class: "@class", name: "@name", value: "@value" }
+post: python_class_auth

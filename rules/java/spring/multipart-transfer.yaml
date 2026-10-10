@@ -1,0 +1,14 @@
+# uploaded file written to disk (`file.transferTo(new File(dir, file.getOriginalFilename()))`); the
+# destination name, type and size checks are what the review looks at.
+id: java.spring.multipart-transfer
+version: 1
+kind: sink
+lang: java
+framework: spring
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: file_upload
+cwe: [CWE-434]
+severityHint: high
+api: "org.springframework.web.multipart.MultipartFile#transferTo(File)"
+match: { receiverTypes: [MultipartFile, CommonsMultipartFile, StandardMultipartFile, FilePart], receiverNamePattern: '(?i)file|upload|multipart|attachment|avatar|image', minArgs: 1 }

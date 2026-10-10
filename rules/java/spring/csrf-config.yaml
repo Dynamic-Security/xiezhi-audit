@@ -1,0 +1,14 @@
+# Spring Security CSRF configuration — `http.csrf().disable()`, `csrf(c -> c.disable())`,
+# `csrf(AbstractHttpConfigurer::disable)` or ignoring matchers; with cookie-based sessions a disabled check lets a
+# cross-site form act as the user.
+id: java.spring.csrf-config
+version: 1
+kind: sink
+lang: java
+framework: spring
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method" }
+category: csrf
+cwe: [CWE-352]
+severityHint: medium
+api: "Spring Security csrf 配置"

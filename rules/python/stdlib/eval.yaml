@@ -1,0 +1,14 @@
+# Builtin eval / exec / compile with a non-constant argument.
+id: python.stdlib.eval
+version: 1
+kind: sink
+lang: python
+framework: stdlib
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: code_injection
+cwe: [CWE-94]
+severityHint: critical
+api: "{method}"
+match: { receiverImportAny: [builtins], minArgs: 1 }
+post: python_nonconst

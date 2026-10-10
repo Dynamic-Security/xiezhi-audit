@@ -1,0 +1,14 @@
+# EF Core 2/3 FromSql / ExecuteSqlCommand with a plain string (an interpolated argument binds a FormattableString).
+id: csharp.efcore.legacy-sql
+version: 1
+kind: sink
+lang: csharp
+framework: efcore
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "EF Core {method}(sql, …)"
+match: { minArgs: 1 }
+post: csharp_formattable_sql

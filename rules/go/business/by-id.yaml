@@ -1,0 +1,14 @@
+# business-sensitive point: an ORM / repository call that loads or changes one record by
+# id (GORM, xorm, repository methods) — where an ownership (IDOR) check must hold.
+id: go.business.by-id
+version: 1
+kind: sink
+lang: go
+framework: business
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: authz_object
+cwe: [CWE-639]
+severityHint: medium
+api: "按 ID 访问资源 {method}(…)"
+match: { receiverNamePattern: '(?i)db|tx|repo|store|dao|svc|service|model|mapper|orm|engine|sess', notReceiverTextPattern: '^(http|json|os|exec|c|ctx|r|req|w|strings|strconv)$', minArgs: 1 }

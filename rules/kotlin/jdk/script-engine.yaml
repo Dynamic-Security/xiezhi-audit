@@ -1,0 +1,12 @@
+id: kotlin.jdk.script-engine
+version: 1
+kind: sink
+lang: kotlin
+framework: jdk
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: code_injection
+cwe: [CWE-94]
+severityHint: critical
+api: "javax.script.ScriptEngine#eval(String)"
+match: { receiverTypes: [ScriptEngine], receiverNamePattern: '(?i)engine|getEngineByName', minArgs: 1 }

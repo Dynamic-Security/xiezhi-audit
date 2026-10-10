@@ -1,0 +1,13 @@
+# call_user_func / call_user_func_array with a variable callable.
+id: php.code.dynamic-call
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: code_injection
+cwe: [CWE-94]
+severityHint: high
+api: "{method}"
+match: { minArgs: 1 }

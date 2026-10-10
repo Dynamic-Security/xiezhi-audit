@@ -1,0 +1,12 @@
+id: kotlin.libs.spel
+version: 1
+kind: sink
+lang: kotlin
+framework: libs
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: expression_injection
+cwe: [CWE-917]
+severityHint: critical
+api: "{receiverType}#{method}(String)"
+match: { receiverTypes: [SpelExpressionParser, ExpressionParser], receiverNamePattern: '(?i)parser', minArgs: 1 }

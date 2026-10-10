@@ -1,0 +1,13 @@
+# HTML responses built with format! / concatenation: axum Html(format!(…)), Rocket RawHtml(…), actix HttpResponse body of format!(…) with content_type html.
+id: rust.web.html-response
+version: 1
+kind: sink
+lang: rust
+framework: web
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: xss
+cwe: [CWE-79]
+severityHint: medium
+api: "{method}(…)"
+post: rust_concat

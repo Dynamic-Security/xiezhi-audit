@@ -1,0 +1,10 @@
+# FastAPI Depends(get_current_user) / Security(...) on handler parameters (annotation) or router / app dependencies (middleware).
+id: python.fastapi.depends
+version: 1
+kind: auth_signal
+lang: python
+framework: fastapi
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", fn: "@fn", args: "@args" }
+match: { requiresImportAny: [fastapi] }
+post: python_fastapi_depends

@@ -1,0 +1,14 @@
+# Exposed raw SQL inside `transaction { exec("…") }` (files importing org.jetbrains.exposed only).
+id: kotlin.exposed.exec
+version: 1
+kind: sink
+lang: kotlin
+framework: exposed
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "org.jetbrains.exposed.sql.Transaction#exec(String)"
+post: kotlin_exposed_exec
+match: { minArgs: 1 }

@@ -1,0 +1,10 @@
+# Laravel controller constructor $this->middleware('auth') (with ->only / ->except): auth signal on the controller
+# (or the listed actions); attached to route entries whose handler is that controller.
+id: php.laravel.controller-middleware
+version: 1
+kind: auth_signal
+lang: php
+framework: laravel
+grammar: tree-sitter-php@0.24
+captures: { call: "@call" }
+post: php_laravel_controller_middleware

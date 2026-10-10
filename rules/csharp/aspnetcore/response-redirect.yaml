@@ -1,0 +1,14 @@
+# Response.Redirect / Results.Redirect without Url.IsLocalUrl.
+id: csharp.aspnetcore.response-redirect
+version: 1
+kind: sink
+lang: csharp
+framework: aspnetcore
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: open_redirect
+cwe: [CWE-601]
+severityHint: medium
+api: "{receiver}.Redirect(url)"
+match: { receiverTextPattern: '(^|\.)(Response|Results|TypedResults)$', minArgs: 1 }
+post: csharp_redirect

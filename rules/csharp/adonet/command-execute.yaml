@@ -1,0 +1,14 @@
+# executing a command whose text is set outside the method (the construction is not visible).
+id: csharp.adonet.command-execute
+version: 1
+kind: sink
+lang: csharp
+framework: adonet
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: sqli
+cwe: [CWE-89]
+severityHint: medium
+api: "{receiverType}.{method}()"
+match: { receiverTypes: [SqlCommand, DbCommand, IDbCommand, NpgsqlCommand, MySqlCommand, SqliteCommand, OracleCommand, OleDbCommand, OdbcCommand], receiverNamePattern: '(?i)cmd|command' }
+post: csharp_command_execute

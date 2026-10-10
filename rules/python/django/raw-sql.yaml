@@ -1,0 +1,13 @@
+# Django ORM raw SQL: Model.objects.raw(), .extra(where=…), RawSQL().
+id: python.django.raw-sql
+version: 1
+kind: sink
+lang: python
+framework: django
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{module}.{method}"
+match: { receiverTextPattern: 'objects|_set$|Manager|manager|RawSQL', requiresImportAny: [django], minArgs: 1 }

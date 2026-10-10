@@ -1,0 +1,13 @@
+# render inline: with a non-constant template (ERB evaluated server-side).
+id: ruby.web.render-inline
+version: 1
+kind: sink
+lang: ruby
+framework: web
+grammar: tree-sitter-ruby@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssti
+cwe: [CWE-1336]
+severityHint: critical
+api: "render inline:"
+post: ruby_render_inline

@@ -1,0 +1,11 @@
+# Egg router files (`app/router.js`, `app/router/**`): `router.verb([name,] path, ...middleware, controller.a.b)`
+# (or the string `'a.b'`), `router.resources([name,] prefix, controller.a)` (seven RESTful routes), `router.namespace(prefix, ...mw)`.
+# Handlers resolve to the method of the controller file `app/controller/a.js`; `config.middleware` is global middleware.
+id: js.egg.router
+version: 1
+kind: entrypoint
+lang: javascript
+framework: egg
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+post: js_egg_route

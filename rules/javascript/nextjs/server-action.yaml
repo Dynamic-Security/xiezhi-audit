@@ -1,0 +1,10 @@
+# Next.js Server Actions — exports of a `'use server'` module and functions whose body starts with
+# `'use server'`. Any client can POST to them, so each is an entry: kind rpc, key `rpc:next-action:<module>#<function>`.
+id: js.nextjs.server-action
+version: 1
+kind: entrypoint
+lang: javascript
+framework: nextjs
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call" }
+post: js_next_server_action

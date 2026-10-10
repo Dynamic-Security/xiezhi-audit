@@ -1,0 +1,12 @@
+id: kotlin.libs.jackson-typing
+version: 1
+kind: sink
+lang: kotlin
+framework: libs
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: deserialization
+cwe: [CWE-502]
+severityHint: high
+api: "com.fasterxml.jackson.databind.ObjectMapper#{method}()"
+match: { receiverTypes: [ObjectMapper, JsonMapper], receiverNamePattern: '(?i)mapper|jacksonObjectMapper' }

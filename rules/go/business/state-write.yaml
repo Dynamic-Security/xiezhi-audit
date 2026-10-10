@@ -1,0 +1,13 @@
+# business-sensitive point: an ORM update of columns / fields (state, role, amount changes).
+id: go.business.state-write
+version: 1
+kind: sink
+lang: go
+framework: business
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: business_logic
+cwe: [CWE-840]
+severityHint: medium
+api: "业务状态写入 {method}(…)"
+match: { receiverNamePattern: '(?i)db|tx|repo|store|dao|model|orm|engine|sess', notReceiverTextPattern: '^(http|json|os|exec|c|ctx|r|req|w)$', minArgs: 1 }

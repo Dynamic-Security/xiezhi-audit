@@ -1,0 +1,11 @@
+# CodeIgniter 4 routes — $routes->get|post|put|patch|delete|options|head|add|match|resource(…) with
+# $routes->group(prefix, ['filter' => …], fn) nesting; 'filter' options are middlewares; (:num) / (:any) placeholders.
+# Global filters (Config/Filters.php) and auto routing are not read.
+id: php.codeigniter.ci4-route
+version: 1
+kind: entrypoint
+lang: php
+framework: codeigniter
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", verb: "@verb" }
+post: php_ci4_route

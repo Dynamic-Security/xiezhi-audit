@@ -1,0 +1,10 @@
+# Fastify plugins that only receive the instance (`export default async function (fastify) { … }`).
+id: js.fastify.route-param
+version: 1
+kind: entrypoint
+lang: javascript
+framework: fastify
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { notImportAny: [express, fastify, fastify-plugin, koa, "@koa/router", koa-router, "@nestjs/common"], receiverNamePattern: '^(fastify|instance)$' }
+post: js_router_route

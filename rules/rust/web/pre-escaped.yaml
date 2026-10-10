@@ -1,0 +1,13 @@
+# maud PreEscaped / askama MarkupDisplay / ammonia-free raw markup with non-constant content.
+id: rust.web.pre-escaped
+version: 1
+kind: sink
+lang: rust
+framework: web
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: xss
+cwe: [CWE-79]
+severityHint: medium
+api: "{method}(…)"
+post: rust_nonconst

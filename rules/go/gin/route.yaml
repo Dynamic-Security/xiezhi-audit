@@ -1,0 +1,9 @@
+id: go.gin.route
+version: 1
+kind: entrypoint
+lang: go
+framework: gin
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { requiresImportAny: [github.com/gin-gonic/gin] }
+post: go_router_route

@@ -1,0 +1,13 @@
+# Uploaded file stored under a caller-controlled name (move / storeAs).
+id: php.laravel.upload-store
+version: 1
+kind: sink
+lang: php
+framework: laravel
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: file_upload
+cwe: [CWE-434]
+severityHint: medium
+api: "{receiver}->{method}"
+match: { receiverNamePattern: '(?i)file|upload|attach|image|avatar|photo|doc', minArgs: 1 }

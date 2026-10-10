@@ -1,0 +1,15 @@
+# a gorilla WebSocket Upgrader literal — its CheckOrigin decides whether a cross-site page can
+# open a WebSocket carrying the user's cookie (nil = same-origin check; a func that returns true or fails open on a
+# missing Origin header allows cross-site hijacking).
+id: go.websocket.upgrader
+version: 1
+kind: sink
+lang: go
+framework: gorilla-websocket
+grammar: tree-sitter-go@0.25
+captures: { call: "@call" }
+category: cors
+cwe: [CWE-1385]
+severityHint: medium
+api: "gorilla websocket.Upgrader（CheckOrigin 决定能否跨站建立带 cookie 的 WebSocket）"
+match: { requiresImportAny: [github.com/gorilla/websocket] }

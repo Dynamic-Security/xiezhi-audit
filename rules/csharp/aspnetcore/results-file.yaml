@@ -1,0 +1,13 @@
+# Results.PhysicalFile / Results.File in minimal APIs.
+id: csharp.aspnetcore.results-file
+version: 1
+kind: sink
+lang: csharp
+framework: aspnetcore
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: path_traversal
+cwe: [CWE-22]
+severityHint: high
+api: "{receiver}.{method}(path, …)"
+match: { receiverTextPattern: '^(Results|TypedResults)$', minArgs: 1 }

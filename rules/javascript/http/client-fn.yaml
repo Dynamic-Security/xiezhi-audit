@@ -1,0 +1,13 @@
+id: js.http.client-fn
+version: 1
+kind: sink
+lang: javascript
+framework: http
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", method: "@method", args: "@args" }
+category: ssrf
+cwe: [CWE-918]
+severityHint: high
+api: "{importPath}"
+match: { receiverImportAny: [axios, got, node-fetch, request, request-promise, needle, superagent, undici, phin, bent], minArgs: 1 }
+post: js_sink_non_literal

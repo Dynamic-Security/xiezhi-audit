@@ -1,0 +1,12 @@
+id: kotlin.jdk.process-builder-command
+version: 1
+kind: sink
+lang: kotlin
+framework: jdk
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: cmdi
+cwe: [CWE-78]
+severityHint: critical
+api: "java.lang.ProcessBuilder#command(String[])"
+match: { receiverTypes: [ProcessBuilder], receiverNamePattern: '(?i)processBuilder|^pb$', minArgs: 1 }

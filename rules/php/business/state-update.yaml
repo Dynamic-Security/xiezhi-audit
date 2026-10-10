@@ -1,0 +1,13 @@
+# business-sensitive point: an ORM update of state / role / amount columns.
+id: php.business.state-update
+version: 1
+kind: sink
+lang: php
+framework: business
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: business_logic
+cwe: [CWE-840]
+severityHint: medium
+api: "业务状态写入 {method}(…)"
+match: { minArgs: 1 }

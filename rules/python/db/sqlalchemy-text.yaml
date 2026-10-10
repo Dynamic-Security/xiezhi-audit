@@ -1,0 +1,13 @@
+# SQLAlchemy text() textual SQL.
+id: python.db.sqlalchemy-text
+version: 1
+kind: sink
+lang: python
+framework: db
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "sqlalchemy.text"
+match: { receiverImportAny: [sqlalchemy, sqlalchemy.sql, sqlalchemy.sql.expression], minArgs: 1 }

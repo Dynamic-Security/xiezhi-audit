@@ -1,0 +1,10 @@
+# Native PHP: a script whose top-level code reads $_GET / $_POST / $_REQUEST / $_COOKIE / $_FILES / php://input is an
+# entry (ANY /<path>, handler = the file-level <main>); top-level $_SESSION checks become auth signals.
+id: php.native.script
+version: 1
+kind: entrypoint
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { file: "@file" }
+post: php_native_script

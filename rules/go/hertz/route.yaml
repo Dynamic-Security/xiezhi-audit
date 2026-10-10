@@ -1,0 +1,11 @@
+# CloudWeGo Hertz routes (gin-style `h.GET("/x", mw, handler)`, `v1 := h.Group("/v1", mw)`, `v1.Use(mw)`),
+# including hz-generated router files (`r.Group`, `_v1.GET`). Only literal paths starting with `/` count.
+id: go.hertz.route
+version: 1
+kind: entrypoint
+lang: go
+framework: hertz
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { requiresImportAny: [github.com/cloudwego/hertz/pkg/app/server, github.com/cloudwego/hertz/pkg/route] }
+post: go_router_route

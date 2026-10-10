@@ -1,0 +1,15 @@
+# Sinatra template helpers given a String: the string is the template source, compiled and run on the server
+# (`erb "<h1>Hello #{params['name']}</h1>"`). A Symbol names a template file and is not a sink.
+id: ruby.sinatra.inline-template
+version: 1
+kind: sink
+lang: ruby
+framework: sinatra
+grammar: tree-sitter-ruby@0.23
+captures: { call: "@call", method: "@method", args: "@args" }
+category: ssti
+cwe: [CWE-1336]
+severityHint: critical
+api: "sinatra {method}(String)"
+match: { requiresImportAny: [sinatra] }
+post: ruby_nonconst

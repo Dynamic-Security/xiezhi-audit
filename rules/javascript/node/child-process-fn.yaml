@@ -1,0 +1,12 @@
+id: js.node.child-process-fn
+version: 1
+kind: sink
+lang: javascript
+framework: node
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", method: "@method", args: "@args" }
+category: cmdi
+cwe: [CWE-78]
+severityHint: high
+api: "{importPath}.{method}"
+match: { receiverImportAny: [child_process, execa] }

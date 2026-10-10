@@ -1,0 +1,34 @@
+{
+  "name": "@xiezhi/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "@xiezhi/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@xiezhi/agent": "workspace:*",
+    "@xiezhi/context": "workspace:*",
+    "@xiezhi/contracts": "workspace:*",
+    "@xiezhi/engine": "workspace:*",
+    "@xiezhi/eval": "workspace:*",
+    "@xiezhi/knowledge": "workspace:*",
+    "@xiezhi/report": "workspace:*",
+    "@xiezhi/server": "workspace:*",
+    "@xiezhi/store": "workspace:*"
+  },
+  "bin": {
+    "xiezhi": "./dist/main.js"
+  }
+}

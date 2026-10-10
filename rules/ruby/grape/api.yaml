@@ -1,0 +1,8 @@
+# Grape API classes: prefix / path version / namespace / resource / route_param / verb blocks; prefixes of parent APIs and Rails mounts.
+id: ruby.grape.api
+version: 1
+kind: entrypoint
+lang: ruby
+framework: grape
+grammar: tree-sitter-ruby@0.23
+post: ruby_grape_api

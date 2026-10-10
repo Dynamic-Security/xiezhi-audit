@@ -1,0 +1,12 @@
+id: kotlin.ktor.respond-redirect
+version: 1
+kind: sink
+lang: kotlin
+framework: ktor
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: open_redirect
+cwe: [CWE-601]
+severityHint: medium
+api: "io.ktor.server.response#respondRedirect(String)"
+match: { receiverTextPattern: '^call$', minArgs: 1 }

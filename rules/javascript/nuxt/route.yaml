@@ -1,0 +1,11 @@
+# Nuxt / Nitro server routes — `server/api/**` → `/api/**`, `server/routes/**` → `/**`; `name.get.ts` sets the
+# method (else any); the default export (`defineEventHandler(…)`) is the handler; `server/middleware/*` runs on every
+# request; authentication calls in the handler body (`requireUserSession(event)`, …) are middlewares.
+id: js.nuxt.route
+version: 1
+kind: entrypoint
+lang: javascript
+framework: nuxt
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call" }
+post: js_nuxt_route

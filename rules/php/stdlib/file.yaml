@@ -1,0 +1,13 @@
+# Filesystem access by path (read, write, delete, copy, list).
+id: php.file.path
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: path_traversal
+cwe: [CWE-22]
+severityHint: high
+api: "{method}"
+match: { minArgs: 1 }

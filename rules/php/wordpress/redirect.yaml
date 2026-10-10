@@ -1,0 +1,13 @@
+# wp_redirect (not wp_safe_redirect) — open redirect candidates.
+id: php.wordpress.redirect
+version: 1
+kind: sink
+lang: php
+framework: wordpress
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: open_redirect
+cwe: [CWE-601]
+severityHint: medium
+api: "{method}"
+match: { minArgs: 1 }

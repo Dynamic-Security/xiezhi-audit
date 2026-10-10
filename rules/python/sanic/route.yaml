@@ -1,0 +1,11 @@
+# Sanic — @app.route / @app.get|post|… and Blueprint(url_prefix=…) routes in files that import sanic (Flask's
+# prefix handling); @protected / @scoped (sanic-jwt) count as auth.
+id: python.sanic.route
+version: 1
+kind: entrypoint
+lang: python
+framework: sanic
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args", handler: "@handler" }
+match: { requiresImportAny: [sanic] }
+post: python_sanic_route

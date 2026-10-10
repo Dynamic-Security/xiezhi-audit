@@ -1,0 +1,13 @@
+# Laravel DB facade raw statements (select / statement / unprepared / raw ...).
+id: php.laravel.db-raw
+version: 1
+kind: sink
+lang: php
+framework: laravel
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "DB::{method}"
+match: { receiverTextPattern: '^\\?(Illuminate\\Support\\Facades\\)?DB$', minArgs: 1 }

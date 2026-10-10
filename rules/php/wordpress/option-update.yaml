@@ -1,0 +1,15 @@
+# option / user-meta writes with an argument read from the request ($_POST / $_GET / $_REQUEST) — privilege
+# escalation and settings tampering when reachable without a capability check.
+id: php.wordpress.option-update
+version: 1
+kind: sink
+lang: php
+framework: wordpress
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: business_logic
+cwe: [CWE-285]
+severityHint: high
+api: "{method}"
+match: { minArgs: 1 }
+post: php_request_arg

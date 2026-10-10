@@ -1,0 +1,13 @@
+# Native database extension query functions (mysqli / pg / sqlite / odbc) with a raw SQL string.
+id: php.sql.function
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{method}"
+match: { minArgs: 1 }

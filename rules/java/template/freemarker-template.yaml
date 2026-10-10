@@ -1,0 +1,14 @@
+# FreeMarker template built from source text (`new Template("t", new StringReader(src), cfg)`,
+# `new Template(name, src, cfg)`); loading by name through `cfg.getTemplate(…)` is not a sink here.
+id: java.template.freemarker-template
+version: 1
+kind: sink
+lang: java
+framework: template
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: ssti
+cwe: [CWE-1336]
+severityHint: critical
+api: "freemarker.template.Template#<init>(String, Reader, Configuration)"
+match: { requiresImportAny: [freemarker.template.Template, freemarker.template.*], minArgs: 2 }

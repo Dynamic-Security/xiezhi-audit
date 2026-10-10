@@ -1,0 +1,9 @@
+# SecurityFilterChain: the Kotlin DSL (`http { authorizeHttpRequests { authorize(...) } }`) and the fluent API.
+id: kotlin.spring.security-config
+version: 1
+kind: auth_signal
+lang: kotlin
+framework: spring
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method" }
+post: kotlin_security_config

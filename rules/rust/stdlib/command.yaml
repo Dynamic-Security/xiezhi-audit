@@ -1,0 +1,14 @@
+# std::process::Command / tokio::process::Command with a non-constant program, or a shell (sh -c, cmd /C) running a non-constant script.
+id: rust.stdlib.command
+version: 1
+kind: sink
+lang: rust
+framework: stdlib
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: cmdi
+cwe: [CWE-78]
+severityHint: critical
+api: "Command::new"
+match: { receiverTextPattern: "(^|::)Command$" }
+post: rust_command

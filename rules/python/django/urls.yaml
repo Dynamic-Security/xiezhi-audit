@@ -1,0 +1,10 @@
+# Django urlpatterns path() / re_path() / url(): function views, View.as_view() (methods of the class), include() prefixes across files.
+id: python.django.urls
+version: 1
+kind: entrypoint
+lang: python
+framework: django
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", fn: "@fn", args: "@args" }
+match: { requiresImportAny: [django.urls, django.conf.urls] }
+post: python_django_path

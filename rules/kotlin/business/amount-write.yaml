@@ -1,0 +1,12 @@
+id: kotlin.business.amount-write
+version: 1
+kind: sink
+lang: kotlin
+framework: business
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: business_logic
+cwe: [CWE-840, CWE-1284]
+severityHint: medium
+api: "金额/数量写入 {method}(…)"
+match: { minArgs: 1 }

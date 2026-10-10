@@ -1,0 +1,13 @@
+# EF Core raw SQL APIs (FromSqlInterpolated / FromSql with an interpolated string bind parameters and are not sinks).
+id: csharp.efcore.raw-sql
+version: 1
+kind: sink
+lang: csharp
+framework: efcore
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "EF Core {method}(sql, …)"
+match: { minArgs: 1 }

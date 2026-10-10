@@ -1,0 +1,13 @@
+# open() / io.open / os.remove / shutil.* on a path.
+id: python.stdlib.file-open
+version: 1
+kind: sink
+lang: python
+framework: stdlib
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: path_traversal
+cwe: [CWE-22]
+severityHint: high
+api: "{module}.{method}"
+match: { receiverImportAny: [builtins, io, os, shutil, codecs, aiofiles], minArgs: 1 }

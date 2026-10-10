@@ -1,0 +1,14 @@
+# LDAP searches (`ctx.search(base, "(uid=" + user + ")", controls)`, Spring `LdapTemplate.search`). The taint
+# hint is `string_concat` when the filter is concatenated in the call.
+id: java.ldap.dir-context-search
+version: 1
+kind: sink
+lang: java
+framework: ldap
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: ldapi
+cwe: [CWE-90]
+severityHint: high
+api: "{receiverType}#search(String, String, …)"
+match: { receiverTypes: [DirContext, InitialDirContext, LdapContext, InitialLdapContext, LdapTemplate, LdapOperations], receiverNamePattern: '(?i)^(ctx|dirctx|dircontext|context|ldap\w*)$', minArgs: 2 }

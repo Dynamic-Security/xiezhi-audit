@@ -1,0 +1,12 @@
+id: kotlin.jdk.url-connection
+version: 1
+kind: sink
+lang: kotlin
+framework: jdk
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: ssrf
+cwe: [CWE-918]
+severityHint: high
+api: "java.net.URL#{method}()"
+match: { receiverTypes: [URL], receiverNamePattern: '(?i)url$' }

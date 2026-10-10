@@ -1,0 +1,13 @@
+# Code evaluation: eval, create_function.
+id: php.code.eval
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: code_injection
+cwe: [CWE-95]
+severityHint: critical
+api: "{method}"
+match: { minArgs: 1 }

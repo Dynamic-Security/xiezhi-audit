@@ -1,0 +1,13 @@
+# a servlet Cookie is created — session / remember-me cookies need HttpOnly, Secure and a
+# SameSite policy, and must not carry secrets in clear.
+id: java.servlet.cookie
+version: 1
+kind: sink
+lang: java
+framework: servlet
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", type: "@type", args: "@args" }
+category: authn
+cwe: [CWE-1004, CWE-614]
+severityHint: low
+api: "new Cookie(…)（会话 Cookie 的 HttpOnly / Secure / SameSite）"

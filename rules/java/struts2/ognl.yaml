@@ -1,0 +1,14 @@
+# OGNL evaluation with a non-literal expression (OgnlUtil / Ognl / ValueStack, TextParseUtil.translateVariables).
+id: java.struts2.ognl
+version: 1
+kind: sink
+lang: java
+framework: struts2
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: expression_injection
+cwe: [CWE-917]
+severityHint: high
+api: "{receiverType}.{method}"
+match: { receiverTypes: [OgnlUtil, Ognl, ValueStack, OgnlValueStack, TextParseUtil], receiverNamePattern: '(?i)^(ognl\w*|\w*valuestack|stack|textparseutil)$', minArgs: 1 }
+post: java_sink_non_literal

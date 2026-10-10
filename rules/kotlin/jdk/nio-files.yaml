@@ -1,0 +1,12 @@
+id: kotlin.jdk.nio-files
+version: 1
+kind: sink
+lang: kotlin
+framework: jdk
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: path_traversal
+cwe: [CWE-22]
+severityHint: medium
+api: "java.nio.file.{receiver}#{method}(Path)"
+match: { receiverTextPattern: '^(Files|Paths|Path|java\.nio\.file\.(Files|Paths|Path))$', minArgs: 1 }

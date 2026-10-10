@@ -1,0 +1,14 @@
+# business-sensitive point: Kotlin property writes (`loan.status = …`, `loan.amount += …`) and data-class
+# `copy(status = …)`. Only used when strategy.stages.logicReview is on; never a vulnerability by itself.
+id: kotlin.business.state-field
+version: 1
+kind: sink
+lang: kotlin
+framework: business
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", field: "@field" }
+category: business_logic
+cwe: [CWE-840]
+severityHint: medium
+api: "业务状态写入 .{field} ="
+post: kotlin_field_write

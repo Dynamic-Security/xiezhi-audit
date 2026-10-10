@@ -1,0 +1,12 @@
+# XML parsers with a resolver or DTD processing enabled.
+id: csharp.dotnet.xml-resolver
+version: 1
+kind: sink
+lang: csharp
+framework: dotnet
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: xxe
+cwe: [CWE-611]
+severityHint: high
+api: "XmlDocument / XmlReaderSettings {method} = …"

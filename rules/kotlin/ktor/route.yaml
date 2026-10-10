@@ -1,0 +1,9 @@
+# Ktor routing DSL: `get("/x") { }` inside `routing { }` / `route("/p") { }` (or a Route / Application extension).
+id: kotlin.ktor.route
+version: 1
+kind: entrypoint
+lang: kotlin
+framework: ktor
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", verb: "@verb", args: "@args" }
+post: kotlin_ktor_route

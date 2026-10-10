@@ -1,0 +1,14 @@
+# maybe_unserialize — object injection candidates.
+id: php.wordpress.unserialize
+version: 1
+kind: sink
+lang: php
+framework: wordpress
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: deserialization
+cwe: [CWE-502]
+severityHint: high
+api: "{method}"
+match: { minArgs: 1 }
+post: php_not_wp_storage

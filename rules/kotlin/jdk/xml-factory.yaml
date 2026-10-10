@@ -1,0 +1,14 @@
+# An XML parser factory in a function that does not set secure features (disallow-doctype-decl, FEATURE_SECURE_PROCESSING, SUPPORT_DTD).
+id: kotlin.jdk.xml-factory
+version: 1
+kind: sink
+lang: kotlin
+framework: jdk
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: xxe
+cwe: [CWE-611]
+severityHint: high
+api: "javax.xml.parsers.{receiver}#{method}()"
+post: kotlin_xml_factory
+match: { receiverTextPattern: '^(DocumentBuilderFactory|SAXParserFactory|XMLInputFactory|TransformerFactory|SchemaFactory)$' }

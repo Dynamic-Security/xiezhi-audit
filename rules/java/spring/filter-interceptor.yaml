@@ -1,0 +1,8 @@
+id: java.spring.filter-interceptor
+version: 1
+kind: auth_signal
+lang: java
+framework: spring
+grammar: tree-sitter-java@0.23
+captures: { class: "@class", super: "@super" }
+post: java_filter_class

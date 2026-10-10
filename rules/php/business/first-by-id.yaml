@@ -1,0 +1,13 @@
+# business-sensitive point: a query filtered on the primary id and fetched as one record (where('id', $id)->first()).
+id: php.business.first-by-id
+version: 1
+kind: sink
+lang: php
+framework: business
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: authz_object
+cwe: [CWE-639]
+severityHint: medium
+api: "按 ID 访问资源 where(id)->{method}()"
+match: { receiverTextPattern: '(?i)where\(\s*[''"](\w+\.)?id[''"]' }

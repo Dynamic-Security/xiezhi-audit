@@ -1,0 +1,13 @@
+# business-sensitive point: a model save() after a state / role / amount attribute was assigned in the same function.
+id: php.business.state-save
+version: 1
+kind: sink
+lang: php
+framework: business
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: business_logic
+cwe: [CWE-840]
+severityHint: medium
+api: "业务状态写入 {method}()"
+post: php_state_save

@@ -1,0 +1,11 @@
+# falcon — app.add_route(uri_template, Resource(), suffix=…) with on_get / on_post / … (on_get_<suffix>)
+# responders; @falcon.before hooks and falcon.App(middleware=[…]) in the same file are middlewares.
+id: python.falcon.route
+version: 1
+kind: entrypoint
+lang: python
+framework: falcon
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", args: "@args" }
+match: { requiresImportAny: [falcon] }
+post: python_falcon_route

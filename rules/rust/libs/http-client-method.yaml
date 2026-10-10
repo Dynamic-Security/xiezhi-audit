@@ -1,0 +1,14 @@
+# Outbound HTTP through a client value with a non-constant URL: client.get(url) / .post / .request(method, url) on reqwest / hyper / awc clients.
+id: rust.libs.http-client-method
+version: 1
+kind: sink
+lang: rust
+framework: libs
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssrf
+cwe: [CWE-918]
+severityHint: high
+api: "{receiver}.{method}"
+match: { receiverTextPattern: "(?i)(client|http|reqwest|awc)\\w*$" }
+post: rust_nonconst

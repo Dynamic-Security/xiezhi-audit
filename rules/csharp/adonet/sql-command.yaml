@@ -1,0 +1,13 @@
+# ADO.NET command built from a SQL string (first argument).
+id: csharp.adonet.sql-command
+version: 1
+kind: sink
+lang: csharp
+framework: adonet
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "new {type}(sql, …)"
+match: { minArgs: 1 }

@@ -1,0 +1,13 @@
+# `"redirect:" + url` / `"redirect:$url"` view names built from values.
+id: kotlin.spring.redirect-view
+version: 1
+kind: sink
+lang: kotlin
+framework: spring
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: open_redirect
+cwe: [CWE-601]
+severityHint: medium
+api: "Spring MVC redirect: view name"
+post: kotlin_redirect_view

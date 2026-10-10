@@ -1,0 +1,12 @@
+# beego (v1 github.com/astaxie/beego, v2 github.com/beego/beego/v2/server/web) — Router(path, &C{}, "get,post:Fn")
+# (no mapping → the controller's Get / Post / … methods, found across the repository), Include(&C{}) with
+# `// @router /p [get]` annotations, AutoRouter(&C{}), function routes Get|Post|…|Any(path, fn), the NS* forms inside
+# NSNamespace / NewNamespace (prefixes), and InsertFilter(pattern, pos, fn) of the same file as middlewares.
+id: go.beego.router
+version: 1
+kind: entrypoint
+lang: go
+framework: beego
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", verb: "@verb", args: "@args" }
+post: go_beego_route

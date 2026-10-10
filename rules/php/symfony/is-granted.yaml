@@ -1,0 +1,9 @@
+# Symfony #[IsGranted] / #[Security] on a controller class or action.
+id: php.symfony.is-granted
+version: 1
+kind: auth_signal
+lang: php
+framework: symfony
+grammar: tree-sitter-php@0.24
+captures: { annotation: "@annotation" }
+post: php_symfony_is_granted

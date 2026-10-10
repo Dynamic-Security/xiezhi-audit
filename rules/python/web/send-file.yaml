@@ -1,0 +1,13 @@
+# Flask send_file / send_from_directory, Django / FastAPI FileResponse.
+id: python.web.send-file
+version: 1
+kind: sink
+lang: python
+framework: web
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: path_traversal
+cwe: [CWE-22]
+severityHint: high
+api: "{module}.{method}"
+match: { receiverImportAny: [flask, flask.helpers, django.http, django.http.response, fastapi.responses, starlette.responses], minArgs: 1 }

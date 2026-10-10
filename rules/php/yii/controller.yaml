@@ -1,0 +1,11 @@
+# Yii 2 controllers — actionFooBar() → /<module>/<controller-id>/foo-bar (controllers sub-namespaces kept);
+# VerbFilter methods from behaviors(); AccessControl rules whose roles are not only '?' are auth signals on their
+# actions (or the class). URL manager rules are not read; ActiveController's implicit REST actions are not listed.
+id: php.yii.controller
+version: 1
+kind: entrypoint
+lang: php
+framework: yii
+grammar: tree-sitter-php@0.24
+captures: { class: "@class" }
+post: php_yii_controller

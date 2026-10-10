@@ -1,0 +1,13 @@
+# extract() of request data / parse_str() without a result array (overwrites local variables).
+id: php.other.variable-import
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: other
+cwe: [CWE-621]
+severityHint: medium
+api: "{method}"
+match: { minArgs: 1 }

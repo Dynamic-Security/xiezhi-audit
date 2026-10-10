@@ -1,0 +1,15 @@
+# a GORM clause built by string concatenation or fmt.Sprintf (`db.Where("name = '" + n + "'")`,
+# `db.Order(fmt.Sprintf("%s desc", col))`); parameterized clauses (`db.Where("id = ?", id)`) do not match.
+id: go.gorm.raw-clause
+version: 1
+kind: sink
+lang: go
+framework: gorm
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", cond: "@cond" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+post: go_gorm_raw_clause
+api: "gorm {method}(拼接的 SQL 片段)"
+match: { requiresImportAny: [gorm.io/gorm, github.com/jinzhu/gorm], receiverNamePattern: '(?i)db|tx|gorm|orm|repo|store|sess|query|q$', notReceiverTextPattern: '^(http|json|os|exec|c|ctx|r|req|w|strings)$', minArgs: 1 }

@@ -1,0 +1,12 @@
+id: java.libs.jackson-typing
+version: 1
+kind: sink
+lang: java
+framework: libs
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: deserialization
+cwe: [CWE-502]
+severityHint: high
+api: "com.fasterxml.jackson.databind.ObjectMapper#{method}()"
+match: { receiverTypes: [ObjectMapper], receiverNamePattern: '(?i)mapper' }

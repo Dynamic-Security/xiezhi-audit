@@ -1,0 +1,14 @@
+# Nokogiri XML parsing with entity substitution / DTD loading enabled (NOENT, DTDLOAD, config.noent).
+id: ruby.libs.nokogiri-xxe
+version: 1
+kind: sink
+lang: ruby
+framework: libs
+grammar: tree-sitter-ruby@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: xxe
+cwe: [CWE-611]
+severityHint: high
+api: "{receiver}.{method}"
+match: { receiverTextPattern: "^(::)?Nokogiri(::XML(::Document)?)?$" }
+post: ruby_xxe

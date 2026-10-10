@@ -1,0 +1,12 @@
+# Fiber routes (`app.Get("/x", mw, h)`, `api := app.Group("/api", mw)`, `api.Use(mw)`); `All` → ANY.
+# Only literal paths starting with `/` count (Title-case verbs are common method names). `app.Route(prefix, func(r fiber.Router){…})`
+# and `app.Add(method, path, h)` are not resolved.
+id: go.fiber.route
+version: 1
+kind: entrypoint
+lang: go
+framework: fiber
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { requiresImportAny: [github.com/gofiber/fiber/v2, github.com/gofiber/fiber/v3, github.com/gofiber/fiber] }
+post: go_router_route

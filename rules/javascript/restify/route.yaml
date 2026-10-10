@@ -1,0 +1,10 @@
+# Restify `server.get|post|put|del|patch|head|opts(path | { path }, ...handlers)` on `restify.createServer()`.
+id: js.restify.route
+version: 1
+kind: entrypoint
+lang: javascript
+framework: restify
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { requiresImportAny: [restify] }
+post: js_router_route

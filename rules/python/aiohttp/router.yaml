@@ -1,0 +1,10 @@
+# aiohttp — router.add_get|add_post|…|add_route(method, path, h)|add_view(path, View) and web.get|post|…|route|view
+# (inside app.add_routes([…])); web.Application(middlewares=[…]) in the same file applies to its routes.
+id: python.aiohttp.router
+version: 1
+kind: entrypoint
+lang: python
+framework: aiohttp
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", args: "@args" }
+post: python_aiohttp_route

@@ -1,0 +1,13 @@
+# os.system / os.popen / os.exec* / commands.getoutput / asyncio.create_subprocess_shell.
+id: python.stdlib.os-command
+version: 1
+kind: sink
+lang: python
+framework: stdlib
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: cmdi
+cwe: [CWE-78]
+severityHint: critical
+api: "{module}.{method}"
+match: { receiverImportAny: [os, posix, commands, asyncio, subprocess], minArgs: 1 }

@@ -1,0 +1,11 @@
+# Spring functional routes (WebFlux RouterFunctions, WebMvc.fn): builder route().GET("/p", h::m) and predicate
+# route(GET("/p"), h::m) / andRoute(…); prefixes from nest(path("/a"), …) and builder .path("/a", b -> …).
+# Requires an import of org.springframework.web.(reactive|servlet).function.
+id: java.webflux.router
+version: 1
+kind: entrypoint
+lang: java
+framework: webflux
+grammar: tree-sitter-java@0.23
+captures: { call: "@call" }
+post: java_webflux_route

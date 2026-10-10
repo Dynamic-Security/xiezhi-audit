@@ -1,0 +1,8 @@
+# Authorization / authentication calls inside a method or route block: Pundit authorize / policy_scope, CanCanCan authorize! / can?, Devise authenticate_user!, Sinatra protected!.
+id: ruby.common.authorize-call
+version: 1
+kind: auth_signal
+lang: ruby
+framework: common
+grammar: tree-sitter-ruby@0.23
+post: ruby_auth_call

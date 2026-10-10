@@ -1,0 +1,9 @@
+# Flask app / Blueprint before_request hooks (they run before every route of that app or blueprint).
+id: python.flask.before-request
+version: 1
+kind: auth_signal
+lang: python
+framework: flask
+grammar: tree-sitter-python@0.25
+captures: { router: "@router", hook: "@hook", def: "@def" }
+post: python_before_request

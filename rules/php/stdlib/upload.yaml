@@ -1,0 +1,13 @@
+# Stores an uploaded file (destination name / type checks).
+id: php.file.move-uploaded
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: file_upload
+cwe: [CWE-434]
+severityHint: high
+api: "move_uploaded_file"
+match: { minArgs: 2 }

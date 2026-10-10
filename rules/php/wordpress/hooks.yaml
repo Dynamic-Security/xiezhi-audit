@@ -1,0 +1,13 @@
+# WordPress entries — add_action('wp_ajax_[nopriv_]x' / 'admin_post_[nopriv_]x', cb) → admin-ajax.php /
+# admin-post.php ?action=x (nopriv = no login); request hooks (init, admin_init, wp_loaded, template_redirect, …) whose
+# callback reads request superglobals; register_rest_route(ns, route, [methods, callback, permission_callback]) →
+# /wp-json/ns/route; add_menu_page / add_submenu_page / add_*_page → admin.php?page=slug (capability = auth).
+# current_user_can / is_user_logged_in in the callback are auth; nonce checks and is_admin() are recorded, not auth.
+id: php.wordpress.hooks
+version: 1
+kind: entrypoint
+lang: php
+framework: wordpress
+grammar: tree-sitter-php@0.24
+captures: { call: "@call" }
+post: php_wordpress

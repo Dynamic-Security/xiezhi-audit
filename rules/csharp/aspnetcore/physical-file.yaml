@@ -1,0 +1,13 @@
+# PhysicalFile(path) in controllers.
+id: csharp.aspnetcore.physical-file
+version: 1
+kind: sink
+lang: csharp
+framework: aspnetcore
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: path_traversal
+cwe: [CWE-22]
+severityHint: high
+api: "ControllerBase.PhysicalFile(path, …)"
+match: { minArgs: 1 }

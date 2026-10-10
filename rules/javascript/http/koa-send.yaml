@@ -1,0 +1,12 @@
+id: js.http.koa-send
+version: 1
+kind: sink
+lang: javascript
+framework: http
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", method: "@method", args: "@args" }
+category: path_traversal
+cwe: [CWE-22]
+severityHint: high
+api: "koa-send"
+match: { receiverImportAny: [koa-send, send], minArgs: 2 }

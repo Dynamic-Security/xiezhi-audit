@@ -1,0 +1,12 @@
+# go-zero generated routes (internal/handler/routes.go) — server.AddRoutes([]rest.Route{{Method, Path, Handler}},
+# rest.WithPrefix(…), rest.WithJwt(…), rest.WithMiddlewares(…), …) and AddRoute(rest.Route{…}); the handler is the
+# XxxHandler(svcCtx) factory. `.api` files are not read (the generated routes.go carries the same routes).
+id: go.gozero.routes
+version: 1
+kind: entrypoint
+lang: go
+framework: go-zero
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", args: "@args" }
+match: { requiresImportAny: [github.com/zeromicro/go-zero/rest] }
+post: go_gozero_routes

@@ -1,0 +1,13 @@
+# Templates compiled from non-constant source: Tera::one_off / render_str, Handlebars render_template, minijinja render_str.
+id: rust.libs.template-string
+version: 1
+kind: sink
+lang: rust
+framework: libs
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssti
+cwe: [CWE-1336]
+severityHint: high
+api: "{method}"
+post: rust_nonconst

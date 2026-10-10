@@ -1,0 +1,8 @@
+id: java.spring.request-mapping
+version: 1
+kind: entrypoint
+lang: java
+framework: spring
+grammar: tree-sitter-java@0.23
+captures: { handler: "@method", annotation: "@annotation" }
+post: spring_request_mapping

@@ -1,0 +1,12 @@
+# hapi route objects `{ method, path, handler | options.handler | config.handler }` — in `server.route(…)`,
+# route arrays and route modules (which often import nothing from hapi; the package's dependency selects the rule).
+# `options.auth` (`false` = public) or the `server.auth.default(…)` strategy, and `options.pre`, are the middlewares.
+# Plugin route prefixes (`server.register(p, { routes: { prefix } })`) are not applied.
+id: js.hapi.route
+version: 1
+kind: entrypoint
+lang: javascript
+framework: hapi
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call" }
+post: js_hapi_route

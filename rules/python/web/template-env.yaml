@@ -1,0 +1,14 @@
+# jinja2 Environment().from_string(source).
+id: python.web.template-env
+version: 1
+kind: sink
+lang: python
+framework: web
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssti
+cwe: [CWE-1336]
+severityHint: high
+api: "{receiver}.{method}"
+match: { requiresImportAny: [jinja2, flask], receiverTypes: [Environment, SandboxedEnvironment], receiverNamePattern: '(?i)env|jinja', minArgs: 1 }
+post: python_nonconst

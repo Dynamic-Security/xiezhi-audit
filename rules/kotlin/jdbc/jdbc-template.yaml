@@ -1,0 +1,12 @@
+id: kotlin.jdbc.jdbc-template
+version: 1
+kind: sink
+lang: kotlin
+framework: jdbc
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "org.springframework.jdbc.core.JdbcTemplate#{method}(String)"
+match: { receiverTypes: [JdbcTemplate, NamedParameterJdbcTemplate, JdbcOperations, NamedParameterJdbcOperations], receiverNamePattern: '(?i)jdbc', minArgs: 1 }

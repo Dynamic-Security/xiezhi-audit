@@ -1,0 +1,9 @@
+# Flask add_url_rule(rule, endpoint, view_func) incl. MethodView.as_view, and Flask-RESTful api.add_resource(Resource, urls…).
+id: python.flask.add-url-rule
+version: 1
+kind: entrypoint
+lang: python
+framework: flask
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+post: python_flask_add_url_rule

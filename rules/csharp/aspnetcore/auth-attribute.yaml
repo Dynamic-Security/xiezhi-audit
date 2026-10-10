@@ -1,0 +1,9 @@
+# [Authorize] / [Authorize(Roles|Policy)] / [AllowAnonymous] / filter attributes on controllers and actions.
+id: csharp.aspnetcore.auth-attribute
+version: 1
+kind: auth_signal
+lang: csharp
+framework: aspnetcore
+grammar: tree-sitter-c-sharp@0.23
+captures: { attribute: "@attribute" }
+post: csharp_auth_attribute

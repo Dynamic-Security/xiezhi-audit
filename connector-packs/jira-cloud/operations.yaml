@@ -1,0 +1,86 @@
+# Jira Cloud REST API v3 (https://developer.atlassian.com/cloud/jira/platform/rest/v3/)
+operations:
+  - name: search_issues
+    kind: read
+    description: 按 JQL 搜索工单，返回 key、摘要、状态、处理人、标签
+    method: GET
+    path: /rest/api/3/search/jql
+    query: { jql: "{jql}", maxResults: "{limit}", fields: "summary,status,assignee,labels", nextPageToken: "{page_token}" }
+    params:
+      jql: { type: string, maxLength: 1000, required: true, description: 例如 project = SEC AND text ~ "order" }
+      limit: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      page_token: { type: string, maxLength: 500 }
+    response: { extract: "$.issues[*].{key,fields.summary,fields.status.name,fields.assignee.displayName,fields.labels}", max_bytes: 32768 }
+
+  - name: get_issue
+    kind: read
+    description: 读取一个工单的摘要、状态、标签与描述
+    method: GET
+    path: /rest/api/3/issue/{issue}
+    query: { fields: "summary,status,labels,description,assignee" }
+    params:
+      issue: { type: string, maxLength: 64, required: true, pattern: "^[A-Za-z0-9_-]+$", description: 工单 key 或 id，例如 SEC-12 }
+    response: { extract: "$.{key,fields.summary,fields.status.name,fields.labels,fields.assignee.displayName}", max_bytes: 32768 }
+
+  - name: get_transitions
+    kind: read
+    description: 列出工单当前可执行的流转（用于找到“已解决”等状态的流转 id）
+    method: GET
+    path: /rest/api/3/issue/{issue}/transitions
+    params:
+      issue: { type: string, maxLength: 64, required: true, pattern: "^[A-Za-z0-9_-]+$" }
+    response: { extract: "$.transitions[*].{id,name,to.name}" }
+
+  - name: create_issue
+    kind: write
+    description: 创建工单（描述放入一个 ADF 段落）
+    method: POST
+    path: /rest/api/3/issue
+    body:
+      fields:
+        project: { key: "{project}" }
+        summary: "{summary}"
+        issuetype: { name: "{issue_type}" }
+        labels: "{labels}"
+        description:
+          type: doc
+          version: 1
+          content:
+            - type: paragraph
+              content:
+                - { type: text, text: "{description}" }
+    params:
+      project: { type: string, maxLength: 32, required: true, pattern: "^[A-Z][A-Z0-9_]*$" }
+      summary: { type: string, maxLength: 255, required: true }
+      description: { type: string, maxLength: 30000, required: true }
+      issue_type: { type: string, maxLength: 64, default: Bug }
+      labels: { type: array, items: { type: string } }
+    response: { extract: "$.{id,key,self}" }
+
+  - name: add_comment
+    kind: write
+    description: 给工单添加一条评论
+    method: POST
+    path: /rest/api/3/issue/{issue}/comment
+    body:
+      body:
+        type: doc
+        version: 1
+        content:
+          - type: paragraph
+            content:
+              - { type: text, text: "{text}" }
+    params:
+      issue: { type: string, maxLength: 64, required: true, pattern: "^[A-Za-z0-9_-]+$" }
+      text: { type: string, maxLength: 30000, required: true }
+    response: { extract: "$.{id,self}" }
+
+  - name: transition_issue
+    kind: write
+    description: 对工单执行一个流转（transition id 来自 get_transitions）
+    method: POST
+    path: /rest/api/3/issue/{issue}/transitions
+    body: { transition: { id: "{transition_id}" } }
+    params:
+      issue: { type: string, maxLength: 64, required: true, pattern: "^[A-Za-z0-9_-]+$" }
+      transition_id: { type: string, maxLength: 16, required: true, pattern: "^[0-9]+$" }

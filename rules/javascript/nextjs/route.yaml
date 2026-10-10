@@ -1,0 +1,12 @@
+# Next.js file routes — Pages Router API routes (`pages/api/**`, default export; methods from `req.method`
+# comparisons, else any) and App Router route handlers (`app/**/route.ts`, exported GET / POST / …). Route groups
+# `(x)` and slots `@x` are dropped, `_private` folders skipped, `[id]` → `:id`, `[...x]` → `:x*`. `middleware.ts`
+# (when its matcher covers the route) and authentication calls in the handler body are the middlewares.
+id: js.nextjs.route
+version: 1
+kind: entrypoint
+lang: javascript
+framework: nextjs
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call" }
+post: js_next_route

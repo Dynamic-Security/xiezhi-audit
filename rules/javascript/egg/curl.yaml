@@ -1,0 +1,14 @@
+# Egg / Midway HTTP client `ctx.curl(url)`, `app.curl(url)`, `app.httpclient.request(url)` with a non-literal URL.
+id: js.egg.curl
+version: 1
+kind: sink
+lang: javascript
+framework: egg
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssrf
+cwe: [CWE-918]
+severityHint: high
+api: "{receiver}.{method}"
+match: { requiresImportAny: [egg, "@midwayjs/core", "@midwayjs/decorator", "@midwayjs/web", "@midwayjs/koa", "@midwayjs/axios"], receiverTextPattern: '^(this\.)?(ctx|app|ctx\.app)(\.httpclient)?$|^(this\.)?httpclient$', minArgs: 1 }
+post: js_sink_non_literal

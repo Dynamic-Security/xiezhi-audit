@@ -1,0 +1,14 @@
+# business-sensitive point: ORM load / lookup of one record by id (Model.objects.get(pk=…), session.get(Model, id), Model.query.get(id), get_object_or_404) — where an ownership check must hold.
+id: python.business.by-id
+version: 1
+kind: sink
+lang: python
+framework: business
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: authz_object
+cwe: [CWE-639]
+severityHint: medium
+api: "按 ID 访问资源 {receiver}.{method}(…)"
+match: { minArgs: 1 }
+post: python_by_id

@@ -1,0 +1,4 @@
+text: |-
+  獬豸审计更新：{{display_no}} {{title}}（{{severity}}，{{confirm_status}}）
+  位置：{{location}}
+  {{description}}

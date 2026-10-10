@@ -1,0 +1,9 @@
+# Flask @app.route / @bp.get… on a Flask app or Blueprint (prefixes from Blueprint(url_prefix) and register_blueprint, resolved per snapshot).
+id: python.flask.route
+version: 1
+kind: entrypoint
+lang: python
+framework: flask
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args", handler: "@handler" }
+post: python_flask_route

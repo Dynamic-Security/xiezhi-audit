@@ -1,0 +1,9 @@
+# Django REST framework router.register(prefix, ViewSet): standard actions (list / create / retrieve / update / partial_update / destroy) and @action methods.
+id: python.django.drf-router
+version: 1
+kind: entrypoint
+lang: python
+framework: django
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+post: python_drf_router

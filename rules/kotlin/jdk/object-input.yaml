@@ -1,0 +1,12 @@
+id: kotlin.jdk.object-input
+version: 1
+kind: sink
+lang: kotlin
+framework: jdk
+grammar: tree-sitter-kotlin@1.1.0
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: deserialization
+cwe: [CWE-502]
+severityHint: critical
+api: "java.io.ObjectInputStream#{method}()"
+match: { receiverTypes: [ObjectInputStream], receiverNamePattern: '(?i)ois|objectInput|^input$|^ins?$' }

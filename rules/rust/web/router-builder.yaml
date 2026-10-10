@@ -1,0 +1,8 @@
+# axum Router chains (route / nest / merge / layer / route_layer, method routers get(h).post(h2), closures) and actix-web builders (App / scope / resource / route(.., web::get().to(h)), wrap); prefixes of routers nested from other files.
+id: rust.web.router-builder
+version: 1
+kind: entrypoint
+lang: rust
+framework: web
+grammar: tree-sitter-rust@0.24
+post: rust_router_routes

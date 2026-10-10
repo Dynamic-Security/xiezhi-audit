@@ -1,0 +1,8 @@
+# actix-web and Rocket route attributes (#[get("/p")], #[route(...)]) on handler functions; prefixes from scope / configure / service registrations and Rocket mount(…, routes![…]).
+id: rust.web.route-macros
+version: 1
+kind: entrypoint
+lang: rust
+framework: web
+grammar: tree-sitter-rust@0.24
+post: rust_macro_routes

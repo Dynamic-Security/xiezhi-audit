@@ -1,0 +1,13 @@
+# Query builder / Eloquent raw fragments (whereRaw, orderByRaw, selectRaw, havingRaw ...).
+id: php.laravel.raw-expr
+version: 1
+kind: sink
+lang: php
+framework: laravel
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{method}"
+match: { minArgs: 1 }

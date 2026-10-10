@@ -1,0 +1,13 @@
+# Symfony RedirectResponse / AbstractController::redirect to a URL.
+id: php.symfony.redirect
+version: 1
+kind: sink
+lang: php
+framework: symfony
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: open_redirect
+cwe: [CWE-601]
+severityHint: medium
+api: "{method}"
+match: { notReceiverTextPattern: '^(?!\$this$).+', minArgs: 1 }

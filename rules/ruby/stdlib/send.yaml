@@ -1,0 +1,13 @@
+# Dynamic dispatch with a method name from request data (internal metaprogramming with computed names is not flagged): send / public_send / __send__ / try.
+id: ruby.stdlib.send
+version: 1
+kind: sink
+lang: ruby
+framework: stdlib
+grammar: tree-sitter-ruby@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: code_injection
+cwe: [CWE-470]
+severityHint: high
+api: "{receiver}.{method}(…)"
+post: ruby_send

@@ -1,0 +1,13 @@
+# Dapper extension methods on a connection (SQL text is the first argument).
+id: csharp.dapper.query
+version: 1
+kind: sink
+lang: csharp
+framework: dapper
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "Dapper {receiver}.{method}(sql, …)"
+match: { receiverTypes: [IDbConnection, DbConnection, SqlConnection, NpgsqlConnection, MySqlConnection, SqliteConnection, OracleConnection, IDbTransaction, DbTransaction, SqlTransaction], receiverNamePattern: '(?i)conn|cnn|connection|^_?db$|sql|session|transaction|^_?tx$', minArgs: 1 }

@@ -1,0 +1,9 @@
+# Global guard providers: { provide: APP_GUARD, useClass: JwtAuthGuard }.
+id: js.nestjs.app-guard
+version: 1
+kind: auth_signal
+lang: javascript
+framework: nestjs
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call" }
+post: js_security_config

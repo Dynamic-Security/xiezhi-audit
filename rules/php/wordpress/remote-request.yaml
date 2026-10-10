@@ -1,0 +1,13 @@
+# wp_remote_get / wp_remote_post / wp_remote_request / download_url — HTTP client calls (SSRF candidates; the wp_safe_ variants still reach any public host).
+id: php.wordpress.remote-request
+version: 1
+kind: sink
+lang: php
+framework: wordpress
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: ssrf
+cwe: [CWE-918]
+severityHint: high
+api: "{method}"
+match: { minArgs: 1 }

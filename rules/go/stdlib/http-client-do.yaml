@@ -1,0 +1,12 @@
+id: go.net-http.client-do
+version: 1
+kind: sink
+lang: go
+framework: stdlib
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssrf
+cwe: [CWE-918]
+severityHint: medium
+api: "net/http.(*Client).{method}"
+match: { requiresImportAny: [net/http], receiverNamePattern: '(?i)client', notReceiverTextPattern: '^http$', minArgs: 1 }

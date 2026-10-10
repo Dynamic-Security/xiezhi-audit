@@ -1,0 +1,14 @@
+# Redirect::to / temporary / permanent / see_other (axum, Rocket) with a non-constant target.
+id: rust.web.redirect
+version: 1
+kind: sink
+lang: rust
+framework: web
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: open_redirect
+cwe: [CWE-601]
+severityHint: medium
+api: "Redirect::{method}"
+match: { receiverTextPattern: "(^|::)Redirect$" }
+post: rust_nonconst

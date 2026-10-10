@@ -1,0 +1,11 @@
+# NestJS: @Controller(prefix) classes with @Get/@Post/… methods; @UseGuards / @Roles / @Public on class or method.
+# The global prefix (app.setGlobalPrefix) and versioning are not applied.
+id: js.nestjs.controller
+version: 1
+kind: entrypoint
+lang: javascript
+framework: nestjs
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call" }
+match: { requiresImportAny: ["@nestjs/common"] }
+post: js_nestjs_controller

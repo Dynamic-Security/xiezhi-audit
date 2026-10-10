@@ -1,0 +1,9 @@
+# Django class-based views with LoginRequiredMixin / PermissionRequiredMixin / UserPassesTestMixin.
+id: python.django.auth-mixin
+version: 1
+kind: auth_signal
+lang: python
+framework: django
+grammar: tree-sitter-python@0.25
+captures: { class: "@class", bases: "@bases" }
+post: python_class_mixin_auth

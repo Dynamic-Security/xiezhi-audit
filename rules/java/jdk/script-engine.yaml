@@ -1,0 +1,14 @@
+# script evaluation (mirrors rules/kotlin/jdk/script-engine): `engine.eval(code)`,
+# `new ScriptEngineManager().getEngineByName("js").eval(code)`, Groovy `shell.evaluate(code)`.
+id: java.jdk.script-engine
+version: 1
+kind: sink
+lang: java
+framework: jdk
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: code_injection
+cwe: [CWE-94]
+severityHint: critical
+api: "{receiverType}#{method}(String)"
+match: { receiverTypes: [ScriptEngine, Compilable, GroovyShell, Interpreter], receiverNamePattern: '(?i)engine|getEngineBy|groovyshell|^shell$', minArgs: 1 }

@@ -1,0 +1,13 @@
+id: js.http.redirect
+version: 1
+kind: sink
+lang: javascript
+framework: http
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: open_redirect
+cwe: [CWE-601]
+severityHint: medium
+api: "{receiver}.redirect"
+match: { receiverTextPattern: '^(res|response|ctx|reply)$', minArgs: 1 }
+post: js_sink_non_literal

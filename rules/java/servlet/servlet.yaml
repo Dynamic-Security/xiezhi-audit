@@ -1,0 +1,11 @@
+# servlets — classes with @WebServlet(urlPatterns | value) or a web.xml <servlet-mapping>; one entry per
+# doGet / doPost / … (service = ANY) and url pattern, else one ANY entry on the class (inherited dispatch). web.xml
+# filters, @WebFilter classes and <security-constraint>s covering the pattern are the middlewares.
+id: java.servlet.servlet
+version: 1
+kind: entrypoint
+lang: java
+framework: servlet
+grammar: tree-sitter-java@0.23
+captures: { class: "@class" }
+post: java_servlet

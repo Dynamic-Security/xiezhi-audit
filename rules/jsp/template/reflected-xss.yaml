@@ -1,0 +1,15 @@
+# JSP templates of Java repositories — ${param.x} / ${header.x} / ${cookie.x} outside <c:out> / fn:escapeXml,
+# and <%= … %> expressions that read request data (request.getParameter, getHeader, getQueryString, …). Text scan;
+# scriptlets are not parsed as Java.
+id: jsp.template.reflected-xss
+version: 1
+kind: sink
+lang: jsp
+framework: jsp
+grammar: none
+captures: {}
+category: xss
+cwe: [CWE-79]
+severityHint: medium
+api: "jsp:{expression}"
+post: jsp_reflected_xss

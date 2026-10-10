@@ -1,0 +1,13 @@
+# curl_setopt(..., CURLOPT_URL, url).
+id: php.ssrf.curl-setopt-url
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: ssrf
+cwe: [CWE-918]
+severityHint: high
+api: "curl_setopt(CURLOPT_URL)"
+match: { minArgs: 3 }

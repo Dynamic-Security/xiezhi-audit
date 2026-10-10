@@ -1,0 +1,9 @@
+# CodeIgniter 3 config/routes.php — $route['products/(:num)'] = 'catalog/lookup/$1' and $route['x']['post'] = ….
+id: php.codeigniter.ci3-route
+version: 1
+kind: entrypoint
+lang: php
+framework: codeigniter
+grammar: tree-sitter-php@0.24
+captures: { call: "@call" }
+post: php_ci3_route

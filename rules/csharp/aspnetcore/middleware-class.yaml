@@ -1,0 +1,9 @@
+# convention middleware classes (name ends with Middleware and has Invoke / InvokeAsync).
+id: csharp.aspnetcore.middleware-class
+version: 1
+kind: auth_signal
+lang: csharp
+framework: aspnetcore
+grammar: tree-sitter-c-sharp@0.23
+captures: { class: "@class" }
+post: csharp_filter_class

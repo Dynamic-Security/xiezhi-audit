@@ -1,0 +1,12 @@
+id: java.jdbc.statement-exec
+version: 1
+kind: sink
+lang: java
+framework: jdbc
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "java.sql.Statement#{method}(String)"
+match: { receiverTypes: [Statement, Connection], receiverNamePattern: '(?i)stmt|statement|createStatement', minArgs: 1 }

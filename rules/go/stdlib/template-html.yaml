@@ -1,0 +1,12 @@
+id: go.html-template.unescaped
+version: 1
+kind: sink
+lang: go
+framework: stdlib
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: xss
+cwe: [CWE-79]
+severityHint: medium
+api: "html/template.{method}"
+match: { receiverImport: html/template, minArgs: 1 }

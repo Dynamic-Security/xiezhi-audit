@@ -1,0 +1,14 @@
+# business-sensitive point: writes of state / role / amount fields (obj.status = …, obj.balance -= …, qs.update(status=…)).
+id: python.business.state-write
+version: 1
+kind: sink
+lang: python
+framework: business
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: business_logic
+cwe: [CWE-840]
+severityHint: medium
+api: "业务状态写入 {receiver}.{method}"
+match: { notReceiverTextPattern: '^(request|kwargs|data|params|headers|os\.environ|cache|settings|ctx|context|self\.request)(\.|$)' }
+post: python_state_write

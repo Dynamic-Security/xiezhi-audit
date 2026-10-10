@@ -1,0 +1,14 @@
+# Embedded script engines evaluating non-constant code: rhai Engine eval / run, mlua load, deno / v8 execute_script.
+id: rust.libs.script-eval
+version: 1
+kind: sink
+lang: rust
+framework: libs
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: code_injection
+cwe: [CWE-95]
+severityHint: critical
+api: "{receiver}.{method}"
+match: { receiverTextPattern: "(?i)(engine|rhai|lua|runtime|isolate|js_?ctx|context)$" }
+post: rust_nonconst

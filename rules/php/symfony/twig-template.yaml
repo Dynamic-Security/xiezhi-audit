@@ -1,0 +1,13 @@
+# Twig template compiled from a string (createTemplate).
+id: php.ssti.twig-template
+version: 1
+kind: sink
+lang: php
+framework: symfony
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssti
+cwe: [CWE-1336]
+severityHint: high
+api: "{receiver}->createTemplate"
+match: { receiverNamePattern: '(?i)twig|env', minArgs: 1 }

@@ -1,0 +1,17 @@
+# DB-API drivers (sqlite3, pymysql, psycopg…): execute on a receiver whose name says nothing (`c = conn()`, `r.execute`)
+# in a file that imports the driver. Receivers python.db.cursor-execute already names are excluded.
+id: python.db.dbapi-execute
+version: 1
+kind: sink
+lang: python
+framework: db
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{receiver}.{method}"
+match:
+  requiresImportAny: [sqlite3, aiosqlite, pymysql, MySQLdb, mysql.connector, psycopg2, psycopg, asyncpg, pyodbc, cx_Oracle, oracledb, pymssql]
+  notReceiverTextPattern: '(?i)cur|conn|db|session|engine|tx|transaction|sql|database|connection|client|^(subprocess|os|asyncio|self\.loop|loop|executor|pool)$'
+  minArgs: 1

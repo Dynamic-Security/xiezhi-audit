@@ -1,0 +1,13 @@
+# cURL requests (URL set on init / CURLOPT_URL, executed by curl_exec).
+id: php.ssrf.curl
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: ssrf
+cwe: [CWE-918]
+severityHint: high
+api: "{method}"
+match: { minArgs: 1 }

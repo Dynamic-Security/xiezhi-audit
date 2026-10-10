@@ -1,0 +1,13 @@
+# HttpClient requests (URL is the first argument).
+id: csharp.dotnet.http-client
+version: 1
+kind: sink
+lang: csharp
+framework: dotnet
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: ssrf
+cwe: [CWE-918]
+severityHint: medium
+api: "HttpClient.{method}(url)"
+match: { receiverTypes: [HttpClient], receiverNamePattern: '(?i)http|client', minArgs: 1 }

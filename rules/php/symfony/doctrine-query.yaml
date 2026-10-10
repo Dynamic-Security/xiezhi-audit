@@ -1,0 +1,13 @@
+# Doctrine DQL / DBAL queries from a string (createQuery, createNativeQuery, executeQuery ...).
+id: php.doctrine.query
+version: 1
+kind: sink
+lang: php
+framework: symfony
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{receiver}->{method}"
+match: { receiverNamePattern: '(?i)em\b|entitymanager|manager|conn|connection|db|dbal|doctrine|\$this$', minArgs: 1 }

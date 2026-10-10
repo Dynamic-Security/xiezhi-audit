@@ -1,0 +1,9 @@
+# Symfony controller actions: #[Route] (or @Route docblock) on the method, class-level #[Route] prefix, methods: [...].
+id: php.symfony.route
+version: 1
+kind: entrypoint
+lang: php
+framework: symfony
+grammar: tree-sitter-php@0.24
+captures: { handler: "@handler" }
+post: php_symfony_route

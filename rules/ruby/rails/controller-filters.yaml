@@ -1,0 +1,8 @@
+# Rails controller callbacks guarding actions (before_action / skip_before_action along the inheritance chain and concerns, http_basic_authenticate_with, CanCanCan load_and_authorize_resource).
+id: ruby.rails.controller-filters
+version: 1
+kind: auth_signal
+lang: ruby
+framework: rails
+grammar: tree-sitter-ruby@0.23
+post: ruby_rails_filters

@@ -1,0 +1,14 @@
+# Templates compiled from a non-constant string: render_template_string, jinja2 Template / Environment.from_string.
+id: python.web.template-string
+version: 1
+kind: sink
+lang: python
+framework: web
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssti
+cwe: [CWE-1336]
+severityHint: high
+api: "{module}.{method}"
+match: { receiverImportAny: [flask, jinja2, mako.template, django.template], minArgs: 1 }
+post: python_nonconst

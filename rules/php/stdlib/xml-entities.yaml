@@ -1,0 +1,13 @@
+# XML parsing with entity substitution / DTD loading enabled (LIBXML_NOENT, LIBXML_DTDLOAD).
+id: php.xxe.libxml-noent
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: xxe
+cwe: [CWE-611]
+severityHint: high
+api: "{method}(LIBXML_NOENT)"
+match: { minArgs: 1 }

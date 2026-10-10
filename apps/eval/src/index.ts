@@ -1,0 +1,15 @@
+export { loadBench, staticChecks, checkRootHashes, prepareTrees, sampleLabels, sampleTrees, treeDir, TreeHasher, HEADER, type Bench, type Issue } from './bench.js';
+export { classesIntersect, classOfCategory, findingClasses, labelClasses, normCwe } from './categories.js';
+export { enclosingFunction, functionSpans, listFunctions, maskCode, type FunctionSpan } from './locate.js';
+export { holdoutFingerprints, knowledgeDirs, scanForLeaks, normalizeText, type LeakFingerprints, type LeakHit } from './leak.js';
+export { runBench, parseFilter, selectSamples, loadEvalConfig, preflightProviders, type RunOptions, type SampleFilter } from './runner.js';
+export { scoreRunDir, readRun, matchAudit, Sources, entryMatches, normEntry, classifyReason, jaccard, qualityMetrics, sumCounts, type ScoreResult, type RunScore } from './score.js';
+export { prng, percentile, pairedBootstrap, mcnemar, erfc } from './stats.js';
+export { loadExperiment, planExperiment, patchVariables, toOverride, compareScores, runExperiment, sampleUnits, MIN_LABELS } from './experiment.js';
+export { renderReport, renderExperiment } from './report.js';
+export { gateScores, renderGate, GATE_FORMAT, type GateResult, type GateVerdict } from './gate.js';
+export { importDataset, importCommand, writeImport, parseCsv, changedFiles, changedFunctions, PUBLIC_DATASETS, Selection, SelectionEntry, type ImportResult, type OsvRecord } from './import.js';
+export { EvalError } from './util.js';
+export * from './record.js';
+export * from './schema.js';
+export { main, errorText } from './main.js';

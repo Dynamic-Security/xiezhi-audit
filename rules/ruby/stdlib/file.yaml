@@ -1,0 +1,14 @@
+# File / IO / FileUtils / Dir / Pathname operations on a non-constant path.
+id: ruby.stdlib.file
+version: 1
+kind: sink
+lang: ruby
+framework: stdlib
+grammar: tree-sitter-ruby@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: path_traversal
+cwe: [CWE-22]
+severityHint: medium
+api: "{receiver}.{method}"
+match: { receiverTextPattern: "^(::)?(File|IO|FileUtils|Dir|Pathname)$" }
+post: ruby_nonconst

@@ -1,0 +1,8 @@
+id: kotlin.spring.method-security
+version: 1
+kind: auth_signal
+lang: kotlin
+framework: spring
+grammar: tree-sitter-kotlin@1.1.0
+captures: { annotation: "@annotation" }
+post: kotlin_annotation_auth

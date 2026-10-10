@@ -1,0 +1,13 @@
+# RazorEngine compiles templates to code.
+id: csharp.libs.razor-engine
+version: 1
+kind: sink
+lang: csharp
+framework: libs
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: ssti
+cwe: [CWE-1336]
+severityHint: high
+api: "RazorEngine {receiver}.{method}(template, …)"
+match: { receiverTextPattern: '(^|\.)(Razor|RazorEngine)$|Engine\.Razor$', minArgs: 1 }

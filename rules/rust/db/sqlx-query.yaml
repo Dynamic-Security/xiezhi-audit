@@ -1,0 +1,14 @@
+# sqlx::query / query_as / query_scalar with SQL text built at runtime (format!, +, push_str); the query! macros are compile-time checked and not sinks.
+id: rust.db.sqlx-query
+version: 1
+kind: sink
+lang: rust
+framework: db
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "sqlx::{method}"
+match: { receiverTextPattern: "(^|::)sqlx$" }
+post: rust_sql

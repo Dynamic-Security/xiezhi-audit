@@ -1,0 +1,13 @@
+# Native deserialization (object injection through magic methods).
+id: php.deserialize.unserialize
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: deserialization
+cwe: [CWE-502]
+severityHint: critical
+api: "{method}"
+match: { minArgs: 1 }

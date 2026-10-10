@@ -1,0 +1,13 @@
+# PDO / mysqli object query / exec with a raw SQL string.
+id: php.sql.pdo-query
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{receiver}->{method}"
+match: { receiverNamePattern: '(?i)pdo|db|conn|mysqli|link|dbh|connection|database|sqlite|mysql|pgsql', notReceiverTextPattern: '(?i)^\$(request|req|input|builder|query)$', minArgs: 1 }

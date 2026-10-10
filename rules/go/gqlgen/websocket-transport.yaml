@@ -1,0 +1,14 @@
+# a gqlgen WebSocket transport — the session is checked once at the upgrade; without an
+# InitFunc (or another per-connection check) a subscription keeps the user context after the token is revoked.
+id: go.gqlgen.websocket-transport
+version: 1
+kind: sink
+lang: go
+framework: gqlgen
+grammar: tree-sitter-go@0.25
+captures: { call: "@call" }
+category: authn
+cwe: [CWE-613]
+severityHint: medium
+api: "gqlgen transport.Websocket（InitFunc 校验连接的会话与失效）"
+match: { requiresImportAny: [github.com/99designs/gqlgen/graphql/handler/transport] }

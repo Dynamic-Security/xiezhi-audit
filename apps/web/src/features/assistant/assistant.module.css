@@ -1,0 +1,12 @@
+.body { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.bar { display: flex; align-items: center; gap: 2px; padding: 6px 8px 6px 14px; border-bottom: 1px solid var(--border); min-height: 42px; }
+.title { flex: 1; min-width: 0; font-size: var(--fs-sm); font-weight: 500; color: var(--text-2); }
+.expand { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--text-2); }
+.expand:hover { background: var(--bg-hover); color: var(--text); text-decoration: none; }
+.menuWrap { position: relative; }
+.menu { right: 0; top: 32px; width: 300px; max-height: 360px; overflow-y: auto; }
+.menuOn { background: var(--bg-active); }
+.peek { flex: 1; overflow-y: auto; }
+.loading { flex: 1; display: grid; place-items: center; }
+.kinds { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.kindHint { font-size: 11px; color: var(--text-3); }

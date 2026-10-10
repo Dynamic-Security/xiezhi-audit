@@ -1,0 +1,14 @@
+# ERB.new / Erubi / Haml templates compiled from non-constant source.
+id: ruby.libs.erb
+version: 1
+kind: sink
+lang: ruby
+framework: libs
+grammar: tree-sitter-ruby@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssti
+cwe: [CWE-1336]
+severityHint: critical
+api: "{receiver}.new"
+match: { receiverTextPattern: "^(::)?(ERB|Erubi::Engine|Erubis::Eruby|Haml::Engine|Haml::Template|Liquid::Template|Slim::Template|Tilt::\\w+)$" }
+post: ruby_nonconst

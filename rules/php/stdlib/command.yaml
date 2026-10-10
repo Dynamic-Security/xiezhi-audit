@@ -1,0 +1,13 @@
+# Shell command execution functions.
+id: php.command.exec
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: cmdi
+cwe: [CWE-78]
+severityHint: critical
+api: "{method}"
+match: { minArgs: 1 }

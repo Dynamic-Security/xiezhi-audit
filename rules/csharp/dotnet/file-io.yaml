@@ -1,0 +1,13 @@
+# System.IO.File / Directory operations (path is the first argument).
+id: csharp.dotnet.file-io
+version: 1
+kind: sink
+lang: csharp
+framework: dotnet
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: path_traversal
+cwe: [CWE-22]
+severityHint: high
+api: "System.IO.{receiver}.{method}(path)"
+match: { receiverTextPattern: '^(System\.IO\.)?(File|Directory)$', minArgs: 1 }

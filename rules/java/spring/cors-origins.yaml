@@ -1,0 +1,15 @@
+# where allowed origins are configured — Spring MVC / Security CorsRegistry and
+# CorsConfiguration, and WebSocket endpoint registrations (`setAllowedOrigins("*")` with credentials, or patterns that
+# match any site, let a cross-site page act with the user's session).
+id: java.spring.cors-origins
+version: 1
+kind: sink
+lang: java
+framework: spring
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", args: "@args" }
+category: cors
+cwe: [CWE-942]
+severityHint: medium
+api: "允许的跨域来源 {method}(…)"
+match: { minArgs: 1 }

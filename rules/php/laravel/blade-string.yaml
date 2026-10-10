@@ -1,0 +1,13 @@
+# Blade template compiled from a string (Blade::render / compileString).
+id: php.ssti.blade-string
+version: 1
+kind: sink
+lang: php
+framework: laravel
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssti
+cwe: [CWE-1336]
+severityHint: high
+api: "Blade::{method}"
+match: { receiverTextPattern: '^\\?(Illuminate\\Support\\Facades\\)?Blade$', minArgs: 1 }

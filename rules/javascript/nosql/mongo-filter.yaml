@@ -1,0 +1,14 @@
+# MongoDB / Mongoose filters with $where or taken directly from request data (operator injection).
+id: js.nosql.mongo-filter
+version: 1
+kind: sink
+lang: javascript
+framework: nosql
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: nosqli
+cwe: [CWE-943]
+severityHint: high
+api: "{receiver}.{method}"
+match: { notReceiverTextPattern: '^(req|res|ctx|document|window|\$|_|lodash|Array|Object|arr|list|items|rows|result|results|data)$', minArgs: 1 }
+post: js_sink_nosql_filter

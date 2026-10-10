@@ -1,0 +1,11 @@
+# Vert.x Web — router.get|post|…|route("/p").handler(…).handler(h): the last handler is the entry, earlier
+# ones middlewares; route([prefix/*]).handler(x) without a verb is middleware for the router's later routes; same-file
+# subRouter / mountSubRouter prefixes. Requires an import of io.vertx.ext.web.
+id: java.vertx.route
+version: 1
+kind: entrypoint
+lang: java
+framework: vertx
+grammar: tree-sitter-java@0.23
+captures: { call: "@call" }
+post: java_vertx_route

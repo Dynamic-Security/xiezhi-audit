@@ -1,0 +1,10 @@
+# ThinkPHP routes: Route::get / rule / resource with Route::group prefixes; 'controller/action' handlers.
+id: php.thinkphp.route
+version: 1
+kind: entrypoint
+lang: php
+framework: thinkphp
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { requiresImportAny: ['think\facade\Route', 'think\Route'] }
+post: php_thinkphp_route

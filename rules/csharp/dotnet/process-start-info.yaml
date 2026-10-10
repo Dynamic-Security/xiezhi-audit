@@ -1,0 +1,12 @@
+# ProcessStartInfo (constructor arguments or FileName / Arguments initializer).
+id: csharp.dotnet.process-start-info
+version: 1
+kind: sink
+lang: csharp
+framework: dotnet
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: cmdi
+cwe: [CWE-78]
+severityHint: critical
+api: "new ProcessStartInfo(…)"

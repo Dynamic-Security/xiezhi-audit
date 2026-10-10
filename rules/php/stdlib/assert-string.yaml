@@ -1,0 +1,13 @@
+# assert() with a string argument (evaluated as code before PHP 8).
+id: php.code.assert-string
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: code_injection
+cwe: [CWE-95]
+severityHint: high
+api: "assert(string)"
+match: { minArgs: 1 }

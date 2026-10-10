@@ -1,0 +1,12 @@
+id: go.yaml.unmarshal
+version: 1
+kind: sink
+lang: go
+framework: stdlib
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: deserialization
+cwe: [CWE-502]
+severityHint: low
+api: "{importPath}.{method}"
+match: { receiverImportAny: [gopkg.in/yaml.v2, gopkg.in/yaml.v3, encoding/gob], minArgs: 1 }

@@ -1,0 +1,10 @@
+# minimal APIs: app.MapGet("/x", handler), MapGroup prefixes and endpoint conventions
+# (RequireAuthorization / AllowAnonymous / AddEndpointFilter) on the group or the endpoint.
+id: csharp.aspnetcore.minimal-api
+version: 1
+kind: entrypoint
+lang: csharp
+framework: aspnetcore
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+post: csharp_minimal_api

@@ -1,0 +1,10 @@
+# ASP.NET Core / Web API attribute routing: [HttpGet("…")] / [Route] / [AcceptVerbs] on controller actions,
+# combined with the controller's [Route] prefix ([controller] / [action] tokens, constraints stripped).
+id: csharp.aspnetcore.controller-action
+version: 1
+kind: entrypoint
+lang: csharp
+framework: aspnetcore
+grammar: tree-sitter-c-sharp@0.23
+captures: { handler: "@handler", annotation: "@ann" }
+post: csharp_aspnet_action

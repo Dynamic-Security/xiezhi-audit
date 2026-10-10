@@ -1,0 +1,13 @@
+# ActiveRecord string conditions: where("… #{x}"), order(params[:sort]), pluck / select / joins / having with request values or interpolation (array conditions with ? placeholders are safe).
+id: ruby.db.ar-string
+version: 1
+kind: sink
+lang: ruby
+framework: db
+grammar: tree-sitter-ruby@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "ActiveRecord {method}(…)"
+post: ruby_sql

@@ -1,0 +1,34 @@
+{
+  "name": "@xiezhi/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "@xiezhi/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@xiezhi/agent": "workspace:*",
+    "@xiezhi/connectors": "workspace:*",
+    "@xiezhi/context": "workspace:*",
+    "@xiezhi/contracts": "workspace:*",
+    "@xiezhi/engine": "workspace:*",
+    "@xiezhi/knowledge": "workspace:*",
+    "@xiezhi/report": "workspace:*",
+    "@xiezhi/store": "workspace:*",
+    "@fastify/static": "10.1.5",
+    "@fastify/swagger": "9.9.0",
+    "fastify": "5.12.5",
+    "typebox": "1.3.27"
+  }
+}

@@ -1,0 +1,14 @@
+# Markup() / mark_safe() of a non-constant value bypasses autoescaping.
+id: python.web.markup
+version: 1
+kind: sink
+lang: python
+framework: web
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: xss
+cwe: [CWE-79]
+severityHint: medium
+api: "{module}.{method}"
+match: { receiverImportAny: [markupsafe, flask, jinja2, django.utils.safestring], minArgs: 1 }
+post: python_nonconst

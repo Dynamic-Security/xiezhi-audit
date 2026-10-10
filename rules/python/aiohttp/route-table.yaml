@@ -1,0 +1,9 @@
+# aiohttp RouteTableDef — routes = web.RouteTableDef(); @routes.get('/p') functions and @routes.view('/p') classes.
+id: python.aiohttp.route-table
+version: 1
+kind: entrypoint
+lang: python
+framework: aiohttp
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args", handler: "@handler" }
+post: python_aiohttp_decorator

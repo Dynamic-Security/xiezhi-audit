@@ -1,0 +1,13 @@
+# Raw SQL: mysql / mysql2 / pg (connection|pool|client).query/execute, sequelize.query, knex.raw / *Raw, Prisma $queryRawUnsafe / $executeRawUnsafe, TypeORM repository / manager / dataSource .query. Tagged templates (prisma.$queryRaw`…`, sql`…`) are parameterized and not matched.
+id: js.sql.raw-query
+version: 1
+kind: sink
+lang: javascript
+framework: sql
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{receiver}.{method}"
+match: { receiverNamePattern: '(?i)db|pool|conn|client|knex|sequelize|connection|manager|repo|datasource|queryrunner|prisma|mysql|pg|sql|tx|trx|database|^em$|entitymanager|orm', notReceiverTextPattern: '^(req|res|request|response|ctx|reply|router|app|axios|http|\$|jQuery|document|window|url|qs|querystring)$', minArgs: 1 }

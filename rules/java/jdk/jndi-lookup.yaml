@@ -1,0 +1,14 @@
+# JNDI lookups (`new InitialContext().lookup(name)`, `ctx.lookup(name)`, Spring `JndiTemplate`). A name the
+# caller controls loads remote objects / classes (ldap://, rmi://). There is no JNDI category: recorded as code injection.
+id: java.jdk.jndi-lookup
+version: 1
+kind: sink
+lang: java
+framework: jdk
+grammar: tree-sitter-java@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: code_injection
+cwe: [CWE-74]
+severityHint: critical
+api: "javax.naming.{receiverType}#{method}(String)"
+match: { receiverTypes: [InitialContext, Context, DirContext, InitialDirContext, LdapContext, InitialLdapContext, JndiTemplate, JndiLocatorDelegate], receiverNamePattern: '(?i)^(ctx|context|jndi\w*|initialContext|ic)$', minArgs: 1 }

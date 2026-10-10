@@ -1,0 +1,14 @@
+# Yii 2 raw SQL — createCommand($sql) / findBySql($sql) with SQL built by concatenation or interpolation.
+id: php.yii.create-command
+version: 1
+kind: sink
+lang: php
+framework: yii
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{method}"
+match: { minArgs: 1 }
+post: php_dynamic_arg

@@ -1,0 +1,13 @@
+# preg_replace with the /e modifier (replacement evaluated as code).
+id: php.code.preg-replace-e
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: code_injection
+cwe: [CWE-95]
+severityHint: critical
+api: "preg_replace(/e)"
+match: { minArgs: 2 }

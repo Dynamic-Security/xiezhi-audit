@@ -1,0 +1,8 @@
+# Non-HTTP entries: tonic gRPC service impls (auth from with_interceptor / Server::builder().layer), lapin / rdkafka consumers, tokio-cron-scheduler jobs, clap subcommands.
+id: rust.channels.channels
+version: 1
+kind: entrypoint
+lang: rust
+framework: channels
+grammar: tree-sitter-rust@0.24
+post: rust_channels

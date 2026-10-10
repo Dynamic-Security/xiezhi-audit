@@ -1,0 +1,9 @@
+# Spring MVC handler methods in Kotlin controllers (class @RequestMapping prefix joined; Feign interfaces skipped).
+id: kotlin.spring.request-mapping
+version: 1
+kind: entrypoint
+lang: kotlin
+framework: spring
+grammar: tree-sitter-kotlin@1.1.0
+captures: { handler: "@method", annotation: "@annotation" }
+post: kotlin_spring_mapping

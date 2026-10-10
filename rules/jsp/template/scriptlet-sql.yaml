@@ -1,0 +1,14 @@
+# JSP scriptlets of Java repositories — JDBC executeQuery / executeUpdate / execute / addBatch / prepareStatement
+# whose SQL argument is built by string concatenation (text scan; scriptlets are not parsed as Java).
+id: jsp.template.scriptlet-sql
+version: 1
+kind: sink
+lang: jsp
+framework: jsp
+grammar: none
+captures: {}
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "jsp:{method}"
+post: jsp_scriptlet_sql

@@ -1,0 +1,14 @@
+# subprocess.* (the api notes shell=True).
+id: python.stdlib.subprocess
+version: 1
+kind: sink
+lang: python
+framework: stdlib
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: cmdi
+cwe: [CWE-78]
+severityHint: critical
+api: "subprocess.{method}"
+match: { receiverImportAny: [subprocess], minArgs: 1 }
+post: python_subprocess

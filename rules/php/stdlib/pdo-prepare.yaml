@@ -1,0 +1,14 @@
+# A statement prepared from a SQL string built by concatenation or interpolation (placeholders cannot help).
+id: php.sql.pdo-prepare
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{receiver}->prepare"
+match: { receiverNamePattern: '(?i)pdo|db|conn|mysqli|link|dbh|connection|database|sqlite|mysql|pgsql', minArgs: 1 }
+post: php_dynamic_arg

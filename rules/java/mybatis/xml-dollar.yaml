@@ -1,0 +1,12 @@
+id: java.mybatis.xml-dollar
+version: 1
+kind: sink
+lang: xml
+framework: mybatis
+grammar: none
+captures: {}
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "mybatis:{namespace}.{id}"
+post: mybatis_xml_dollar

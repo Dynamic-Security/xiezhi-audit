@@ -1,0 +1,9 @@
+# Auth decorators on views / methods / classes: login_required, permission_required, jwt_required, roles_required, method_decorator(login_required)…
+id: python.common.auth-decorator
+version: 1
+kind: auth_signal
+lang: python
+framework: common
+grammar: tree-sitter-python@0.25
+captures: { decorator: "@decorator", def: "@def" }
+post: python_decorator_auth

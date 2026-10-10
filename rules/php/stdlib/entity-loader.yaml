@@ -1,0 +1,13 @@
+# libxml_disable_entity_loader(false) re-enables external entities.
+id: php.xxe.entity-loader
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: xxe
+cwe: [CWE-611]
+severityHint: medium
+api: "libxml_disable_entity_loader(false)"
+match: { minArgs: 1 }

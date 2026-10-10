@@ -1,0 +1,13 @@
+# Driver calls with SQL text built at runtime: tokio-postgres / postgres / rusqlite / mysql / sea-orm execute, query, prepare, batch_execute, query_drop, execute_unprepared.
+id: rust.db.raw-sql
+version: 1
+kind: sink
+lang: rust
+framework: db
+grammar: tree-sitter-rust@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: sqli
+cwe: [CWE-89]
+severityHint: high
+api: "{receiver}.{method}(…)"
+post: rust_sql

@@ -1,0 +1,14 @@
+# Outbound HTTP with a non-literal URL: axios / got / http(s) / request / needle / superagent / undici.
+id: js.http.client
+version: 1
+kind: sink
+lang: javascript
+framework: http
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssrf
+cwe: [CWE-918]
+severityHint: high
+api: "{importPath}.{method}"
+match: { receiverImportAny: [axios, got, node-fetch, http, https, request, request-promise, needle, superagent, undici, phin, bent], minArgs: 1 }
+post: js_sink_non_literal

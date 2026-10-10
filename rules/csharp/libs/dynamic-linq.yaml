@@ -1,0 +1,13 @@
+# System.Linq.Dynamic.Core expression parsing.
+id: csharp.libs.dynamic-linq
+version: 1
+kind: sink
+lang: csharp
+framework: libs
+grammar: tree-sitter-c-sharp@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args", type: "@type" }
+category: code_injection
+cwe: [CWE-94]
+severityHint: high
+api: "DynamicExpressionParser.{method}(…)"
+match: { receiverTextPattern: '^DynamicExpressionParser$', minArgs: 1 }

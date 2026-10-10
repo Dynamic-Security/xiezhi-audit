@@ -1,0 +1,9 @@
+id: go.nethttp.handle-func
+version: 1
+kind: entrypoint
+lang: go
+framework: nethttp
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { requiresImportAny: [net/http], notImportAny: [github.com/gin-gonic/gin, github.com/labstack/echo/v4, github.com/hibiken/asynq] }
+post: go_nethttp_route

@@ -1,0 +1,11 @@
+# flamego / macaron routes (gogs). Closure groups are not resolved: the path is the literal of the
+# registration (a suffix of the full route), which is what entry matching and IDOR candidates need.
+id: go.flamego.route
+version: 1
+kind: entrypoint
+lang: go
+framework: flamego
+grammar: tree-sitter-go@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { requiresImportAny: [github.com/flamego/flamego, gopkg.in/macaron.v1, github.com/go-macaron/macaron] }
+post: go_router_route

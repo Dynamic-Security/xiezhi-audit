@@ -1,0 +1,11 @@
+project: SEC
+issue_type: Bug
+summary: "[安全][{{severity_label}}] {{display_no}} {{title}}"
+labels: [xiezhi-audit, "{{category}}"]
+description: |-
+  {{display_no}} {{title}}
+  严重程度：{{severity}}；类别：{{category}} {{cwe}}；状态：{{confirm_status}}
+  项目：{{project}} / {{repo}}；位置：{{location}}
+  入口：{{entries}}
+  {{description}}
+  指纹：{{fingerprint}}

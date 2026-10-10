@@ -1,0 +1,9 @@
+# FastAPI @app.get / @router.post… (APIRouter prefix / dependencies and include_router prefixes resolved per snapshot).
+id: python.fastapi.route
+version: 1
+kind: entrypoint
+lang: python
+framework: fastapi
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args", handler: "@handler" }
+post: python_fastapi_route

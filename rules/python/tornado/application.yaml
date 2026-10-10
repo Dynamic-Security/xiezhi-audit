@@ -1,0 +1,11 @@
+# tornado — Application([(pattern, Handler), url(pattern, Handler)]) / add_handlers(host, […]) (or a list
+# variable of the same file); RequestHandler methods get / post / … are the entries, regex groups become {} params;
+# method decorators such as @tornado.web.authenticated are middlewares.
+id: python.tornado.application
+version: 1
+kind: entrypoint
+lang: python
+framework: tornado
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", args: "@args" }
+post: python_tornado_app

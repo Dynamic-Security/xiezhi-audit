@@ -1,0 +1,13 @@
+# Symfony Process from a shell command line string.
+id: php.symfony.process-shell
+version: 1
+kind: sink
+lang: php
+framework: symfony
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: cmdi
+cwe: [CWE-78]
+severityHint: critical
+api: "Process::fromShellCommandline"
+match: { receiverTextPattern: '(^|\\)Process$', minArgs: 1 }

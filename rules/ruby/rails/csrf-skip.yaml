@@ -1,0 +1,13 @@
+# CSRF protection disabled: skip_before_action :verify_authenticity_token, skip_forgery_protection, protect_from_forgery except: / only: / if:.
+id: ruby.rails.csrf-skip
+version: 1
+kind: sink
+lang: ruby
+framework: rails
+grammar: tree-sitter-ruby@0.23
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: csrf
+cwe: [CWE-352]
+severityHint: medium
+api: "{method}"
+post: ruby_csrf

@@ -1,0 +1,11 @@
+# Route modules that receive the app / router as a parameter and import no framework
+# (`module.exports = (app) => { app.get('/x', h) }`): only literal paths starting with `/` count.
+id: js.express.route-param
+version: 1
+kind: entrypoint
+lang: javascript
+framework: express
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call", router: "@router", verb: "@verb", args: "@args" }
+match: { notImportAny: [express, fastify, fastify-plugin, koa, "@koa/router", koa-router, "@nestjs/common"], receiverNamePattern: '(?i)^(app|api|routes?|\w*router)$' }
+post: js_router_route

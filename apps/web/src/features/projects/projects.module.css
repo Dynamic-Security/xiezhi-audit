@@ -1,0 +1,16 @@
+.title { font-size: var(--fs-2xl); font-weight: 650; letter-spacing: -.02em; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; background: var(--bg-elevated); }
+.statNum { font-size: 24px; font-weight: 650; letter-spacing: -.02em; }
+.statLabel { color: var(--text-3); font-size: var(--fs-xs); margin-top: 2px; }
+.twoCol { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .twoCol { grid-template-columns: 1fr; } }
+.bar { display: grid; grid-template-columns: 44px 1fr 36px; align-items: center; gap: 10px; font-size: var(--fs-sm); }
+.barLabel { color: var(--text-2); }
+.barTrack { height: 8px; background: var(--bg-muted); border-radius: 99px; overflow: hidden; }
+.barFill { height: 100%; border-radius: 99px; min-width: 2px; }
+.barNum { text-align: right; font-weight: 600; }
+.timeline { border-left: 2px solid var(--border); margin-left: 6px; padding-left: 0; display: flex; flex-direction: column; }
+.tlItem { display: flex; gap: 12px; align-items: flex-start; padding: 8px 12px 8px 0; margin-left: -7px; color: var(--text); text-decoration: none !important; border-radius: 8px; }
+.tlItem:hover { background: var(--bg-hover); }
+.tlDot { width: 12px; height: 12px; border-radius: 50%; background: var(--bg); border: 2px solid var(--accent); margin-top: 5px; flex: none; }

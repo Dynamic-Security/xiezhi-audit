@@ -1,0 +1,13 @@
+# requests / httpx / urllib.request / urllib3 module-level clients.
+id: python.libs.http-client
+version: 1
+kind: sink
+lang: python
+framework: libs
+grammar: tree-sitter-python@0.25
+captures: { call: "@call", method: "@method", receiver: "@receiver", args: "@args" }
+category: ssrf
+cwe: [CWE-918]
+severityHint: high
+api: "{module}.{method}"
+match: { receiverImportAny: [requests, httpx, urllib.request, urllib2, urllib3, aiohttp], minArgs: 1 }

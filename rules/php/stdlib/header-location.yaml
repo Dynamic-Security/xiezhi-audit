@@ -1,0 +1,13 @@
+# header("Location: ...") with the target taken from the request.
+id: php.redirect.header
+version: 1
+kind: sink
+lang: php
+framework: php
+grammar: tree-sitter-php@0.24
+captures: { call: "@call", method: "@method", args: "@args" }
+category: open_redirect
+cwe: [CWE-601]
+severityHint: medium
+api: "header(Location)"
+match: { minArgs: 1 }

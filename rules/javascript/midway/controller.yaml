@@ -1,0 +1,11 @@
+# Midway `@Controller(prefix, { middleware })` classes with `@Get/@Post/@Put/@Del/@Patch/@All(path, { middleware })`
+# methods; `@UseGuard(...)` and the decorator `middleware` options are the middlewares.
+id: js.midway.controller
+version: 1
+kind: entrypoint
+lang: javascript
+framework: midway
+grammar: tree-sitter-javascript@0.25 / tree-sitter-typescript@0.23 (javascript, typescript, tsx)
+captures: { call: "@call" }
+match: { requiresImportAny: ["@midwayjs/core", "@midwayjs/decorator", "@midwayjs/web", "@midwayjs/koa", "@midwayjs/express", "@midwayjs/faas"] }
+post: js_midway_controller
