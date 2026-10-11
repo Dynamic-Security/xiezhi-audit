@@ -17,6 +17,16 @@ export interface OpenOptions {
 
 export type EventListener = (e: AuditEvent) => void;
 
+/** The writer lock, or null while a running process holds it. */
+function tryAcquire(path: string, role: string): WriterLock | null {
+  try {
+    return WriterLock.acquire(path, role);
+  } catch (e) {
+    if (e instanceof AppError && e.code === 'LOCK_HELD') return null;
+    throw e;
+  }
+}
+
 export class Store {
   readonly paths: DataDirPaths;
   readonly db: Db;
@@ -44,12 +54,18 @@ export class Store {
       const db = new Db(paths.db);
       try {
         // only the writer-lock holder migrates. Without the lock (read-only commands next to a running
-        // service, possibly of another build sharing the data-dir) the schema must already be current.
+        // service, possibly of another build sharing the data-dir) the schema must already be current —
+        // unless no writer is running (a new data-dir, or the first command after an upgrade): then this
+        // command takes the lock just long enough to migrate.
         if (lock) db.migrate();
         else {
           const { pending } = db.schemaStatus();
           if (pending.length) {
-            throw new AppError('CONFIG_INVALID', `数据库结构需要升级（待执行迁移 ${pending.map((m) => m.version).join('、')}），只读命令不做升级。请先用本版本启动服务（xiezhi serve）或运行一个持有写锁的命令（如 xiezhi project list）完成升级，再重试`, { pending: pending.map((m) => m.version) });
+            const migrating = tryAcquire(paths.lock, `${opts.role}:migrate`);
+            if (!migrating) {
+              throw new AppError('CONFIG_INVALID', `数据库结构需要升级（待执行迁移 ${pending.map((m) => m.version).join('、')}），另一个进程（如正在运行的服务）持有写锁，只读命令不做升级。请待其结束或停止该服务后，用本版本启动服务（xiezhi serve）或运行 xiezhi project list 完成升级，再重试`, { pending: pending.map((m) => m.version) });
+            }
+            try { db.migrate(); } finally { migrating.release(); }
           }
         }
       } catch (e) {
