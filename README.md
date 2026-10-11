@@ -90,6 +90,8 @@ pnpm install && pnpm build && pnpm typecheck && pnpm lint
 
 从源码运行时用 `node apps/cli/dist/main.js` 代替 `xiezhi`。`pnpm release:pack` 在 `release/` 下生成 npm 包（`release/xiezhi-audit/` 与 `xiezhi-audit-<版本>.tgz`），可用 `npm install -g ./release/xiezhi-audit-<版本>.tgz` 本地验证。
 
+发版：把根目录 `package.json` 的版本改为新版本并提交，推送标签 `v<版本>`（如 `v0.1.0-alpha`）。`.github/workflows/release.yml` 会构建 npm 包，在 Linux / macOS 与 Node 22、24 上安装并运行 `scripts/smoke-package.mjs`，通过后发布到 npm（预发布版本用 `alpha` 等单独的 dist-tag）并创建 GitHub Release。手动运行该 workflow 只做构建与安装检查，不发布。
+
 接口文档：服务运行时 `GET /api/v1/openapi.json`，快照在 `docs/api/openapi.json`。
 
 包依赖的方向见下文“架构”，由 `pnpm lint` 强制检查。前端开发时可先 `serve`，再在 `apps/web` 运行 `pnpm dev`（Vite 代理到 4820）。

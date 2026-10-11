@@ -1,0 +1,152 @@
+# Release: a tag v<version> (matching package.json, e.g. v0.1.0-alpha) builds the npm package once, installs it on
+# Linux and macOS with the oldest supported and the current LTS Node, then publishes it to npm and creates the GitHub
+# Release with the same tarball. Run it by hand (workflow_dispatch) for a dry run: build and install checks only.
+#
+# npm publishing uses trusted publishing (OIDC), no token: on npmjs.com, package xiezhi-audit → Settings → Trusted
+# publisher → GitHub Actions, repository Dynamic-Security/xiezhi-audit, workflow release.yml, environment npm.
+# A prerelease version (0.1.0-alpha) is published under its own dist-tag (alpha), so `npm install xiezhi-audit`
+# keeps resolving to the last stable release.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      dist-tag: ${{ steps.version.outputs.dist-tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # skills-history --check (in pnpm lint) reads earlier versions of the built-in skills from git.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Version
+        id: version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+          if [[ "$version" == *-* ]]; then
+            pre=${version#*-}
+            echo "dist-tag=${pre%%.*}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dist-tag=latest" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm release:pack
+      - name: Checksums
+        working-directory: release
+        run: sha256sum xiezhi-audit-*.tgz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: |
+            release/xiezhi-audit-*.tgz
+            release/SHA256SUMS
+          if-no-files-found: error
+
+  install-test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # the oldest supported (engines: >=22.19.0) and the current LTS
+        node: ['22.19.0', '24']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install ripgrep
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then brew install ripgrep; else sudo apt-get update && sudo apt-get install -y ripgrep; fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: package
+      - name: Install the package
+        run: npm install -g ./package/xiezhi-audit-*.tgz
+      - name: Smoke test
+        run: node scripts/smoke-package.mjs "${{ needs.build.outputs.version }}"
+
+  publish-npm:
+    needs: [build, install-test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # trusted publishing needs npm 11.5.1 or later
+      - run: npm install -g npm@11
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: package
+      - name: Publish
+        run: npm publish ./package/xiezhi-audit-*.tgz --access public --tag "${{ needs.build.outputs.dist-tag }}"
+
+  github-release:
+    needs: [build, publish-npm]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: package
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          DIST_TAG: ${{ needs.build.outputs.dist-tag }}
+        run: |
+          {
+            echo "## 安装"
+            echo
+            echo '```bash'
+            if [[ "$DIST_TAG" == latest ]]; then echo "npm install -g xiezhi-audit"; else echo "npm install -g xiezhi-audit@$DIST_TAG"; fi
+            echo '```'
+            echo
+            echo "离线安装：下载下方 xiezhi-audit-$VERSION.tgz，运行 \`npm install -g ./xiezhi-audit-$VERSION.tgz\`。需要 Node.js 22.19 或更高版本与 ripgrep；安装后运行 \`xiezhi doctor\`。"
+            echo
+          } > notes.md
+          flags=()
+          [[ "${{ needs.build.outputs.prerelease }}" == true ]] && flags+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" package/xiezhi-audit-*.tgz package/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes --verify-tag "${flags[@]}"
