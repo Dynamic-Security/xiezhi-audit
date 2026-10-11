@@ -4,8 +4,9 @@ import type { AuthState } from './security.js';
 import type { Scheduler } from './scheduler.js';
 import type { ErrorRing } from './errors.js';
 import type { Uploads } from './uploads.js';
+import { appVersion } from '@xiezhi/contracts';
 
-export const SERVER_VERSION = '0.2.0';
+export const SERVER_VERSION = appVersion();
 
 export interface AppContext {
   store: Store;

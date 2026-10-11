@@ -1,10 +1,9 @@
 // Skill discovery, validation, effective set and prefilter.
 import { createHash } from 'node:crypto';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join, relative, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { canonicalJson, KNOWLEDGE_FRAMEWORKS, KNOWLEDGE_LANGUAGES, REPO_ROLES, SCENES, sha256Hex, SKILL_CATEGORIES, VULN_CATEGORIES, type Scene, type SkillCategory } from '@xiezhi/contracts';
+import { canonicalJson, KNOWLEDGE_FRAMEWORKS, KNOWLEDGE_LANGUAGES, REPO_ROLES, SCENES, sha256Hex, SKILL_CATEGORIES, VULN_CATEGORIES, type Scene, type SkillCategory, resourcePath } from '@xiezhi/contracts';
 
 export const MAX_SKILL_FILE_BYTES = 256 * 1024;
 export const MAX_SKILL_DIR_BYTES = 2 * 1024 * 1024;
@@ -90,7 +89,7 @@ export interface LayerScan { skills: Skill[]; invalid: InvalidSkill[]; settings:
 export interface LayerSettings { disabled: string[]; disabled_categories: string[] }
 
 export function builtinSkillsDir(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'skills');
+  return resourcePath('skills');
 }
 
 /** Installed built-in entries and the content hash written (`_builtin.json` in the global layer; ignored by scans). */

@@ -1,11 +1,28 @@
 // tree-sitter WASM grammars. Loaded once per thread and reused.
+// The npm package carries the .wasm files in `grammars/` (with `versions.json`) instead of depending on the grammar
+// packages, whose install scripts would try to compile native bindings; a source checkout resolves the dependencies.
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { Language, Parser } from 'web-tree-sitter';
-import { sha256Hex } from '@xiezhi/contracts';
+import { resourcePath, sha256Hex } from '@xiezhi/contracts';
 
 const require = createRequire(import.meta.url);
+
+/** File names of the vendored grammars → their package versions; null in a source checkout. */
+let vendored: Record<string, string> | null | undefined;
+function vendoredVersions(): Record<string, string> | null {
+  if (vendored === undefined) {
+    const p = resourcePath('grammars', 'versions.json');
+    vendored = existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) as Record<string, string> : null;
+  }
+  return vendored;
+}
+
+/** A grammar's .wasm (`tree-sitter-java/tree-sitter-java.wasm`): the vendored copy, else the dependency's. */
+export function grammarWasmPath(wasm: string): string {
+  return vendoredVersions()?.[basename(wasm)] ? resourcePath('grammars', basename(wasm)) : require.resolve(wasm);
+}
 
 export const GRAMMARS = {
   java: { pkg: 'tree-sitter-java', wasm: 'tree-sitter-java/tree-sitter-java.wasm' },
@@ -33,7 +50,7 @@ export async function loadLanguage(lang: GrammarLang): Promise<Language> {
   await initPromise;
   let l = languages.get(lang);
   if (!l) {
-    l = await Language.load(require.resolve(GRAMMARS[lang].wasm));
+    l = await Language.load(grammarWasmPath(GRAMMARS[lang].wasm));
     languages.set(lang, l);
   }
   return l;
@@ -57,7 +74,7 @@ export function grammarVersions(): Record<string, string> {
   if (cachedVersions) return cachedVersions;
   const out: Record<string, string> = {};
   for (const [lang, g] of Object.entries(GRAMMARS)) {
-    out[lang] = `${packageVersion(g.wasm)}:${sha256Hex(readFileSync(require.resolve(g.wasm))).slice(0, 16)}`;
+    out[lang] = `${vendoredVersions()?.[basename(g.wasm)] ?? packageVersion(g.wasm)}:${sha256Hex(readFileSync(grammarWasmPath(g.wasm))).slice(0, 16)}`;
   }
   out['web-tree-sitter'] = packageVersion('web-tree-sitter/web-tree-sitter.wasm');
   cachedVersions = out;

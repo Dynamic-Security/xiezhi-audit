@@ -42,7 +42,7 @@ const pkgConfigs = Object.keys(ALLOWED).map((pkg) => ({
 }));
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', 'apps/web/vite.config.ts'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', 'release/**', 'apps/web/vite.config.ts'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

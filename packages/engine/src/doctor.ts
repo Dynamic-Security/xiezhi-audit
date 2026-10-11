@@ -11,6 +11,15 @@ import { lspServer, LSP_SERVER_NAMES } from './lsp.js';
 export type Level = 'ok' | 'fatal' | 'block' | 'warn' | 'info';
 export interface Check { name: string; level: Level; detail: string; impact?: string; fix?: string }
 
+/** How to install a missing rg / git on this platform (or point the setting at an existing binary). */
+function installHint(cmd: 'rg' | 'git'): string {
+  const pkg = cmd === 'rg' ? 'ripgrep' : 'git';
+  const how = process.platform === 'darwin' ? `brew install ${pkg}`
+    : process.platform === 'win32' ? `winget install ${cmd === 'rg' ? 'BurntSushi.ripgrep.MSVC' : 'Git.Git'}`
+      : `sudo apt install ${pkg}（或 dnf / apk / pacman 安装 ${pkg}）`;
+  return `安装 ${pkg}：${how}；已安装但不在 PATH 中时运行 xiezhi config set tools.${cmd}Path <绝对路径>`;
+}
+
 export async function runDoctor(dataDirArg?: string): Promise<Check[]> {
   const checks: Check[] = [];
   let appConfig: AppConfig = defaultAppConfig();
@@ -72,12 +81,14 @@ export async function runDoctor(dataDirArg?: string): Promise<Check[]> {
     } catch { /* statfs unsupported */ }
   }
 
-  const ex = new Executor({ scratchDir: join(dataDir, 'tmp', 'doctor') });
+  // the same binaries the engine runs: configured paths first (tools.rgPath / tools.gitPath).
+  const tools = appConfig.tools;
+  const ex = new Executor({ scratchDir: join(dataDir, 'tmp', 'doctor'), paths: { ...(tools.rgPath ? { rg: tools.rgPath } : {}), ...(tools.gitPath ? { git: tools.gitPath } : {}) } });
   for (const [cmd, level, impact] of [['rg', 'block', '代码搜索不可用，无法发起审计'], ['git', 'warn', 'git ref 快照与工作区版本识别不可用']] as const) {
     const r = await ex.run({ command: cmd, args: ['--version'], cwd: ex.scratchDir, timeoutMs: 10_000 });
     checks.push(r.status === 'ok'
       ? { name: cmd, level: 'ok', detail: `${ex.binaryPath(cmd)} ${r.stdout.inlinePreview.split('\n')[0]}` }
-      : { name: cmd, level, detail: '不可用', impact, fix: `安装 ${cmd === 'rg' ? 'ripgrep' : 'git'}` });
+      : { name: cmd, level, detail: '不可用', impact, fix: installHint(cmd) });
   }
   try {
     for (const g of Object.keys(GRAMMARS) as GrammarLang[]) await loadLanguage(g);

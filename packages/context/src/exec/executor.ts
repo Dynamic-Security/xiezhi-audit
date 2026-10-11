@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
-import { EXEC_EXIT_CODES, type ExecResult, type ExecStatus } from '@xiezhi/contracts';
+import { EXEC_EXIT_CODES, resourcePath, type ExecResult, type ExecStatus } from '@xiezhi/contracts';
 import { listProcesses, processTree, samplingSupported } from './proctree.js';
 
 export const ALLOWED_COMMANDS = ['rg', 'git'] as const;
@@ -81,6 +81,17 @@ interface Watch {
   onLimit: (detail: string) => void;
 }
 
+/** A binary shipped with the install (`vendor/rg` of a portable package); null when there is none. */
+function bundledBinary(name: string): string | null {
+  try {
+    const p = resourcePath('vendor', process.platform === 'win32' ? `${name}.exe` : name);
+    accessSync(p, constants.X_OK);
+    return p;
+  } catch {
+    return null;
+  }
+}
+
 function findOnPath(name: string): string | null {
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     if (!dir) continue;
@@ -135,7 +146,7 @@ export class Executor {
     for (const cmd of ALLOWED_COMMANDS) {
       const configured = opts.paths?.[cmd];
       if (configured && !isAbsolute(configured)) throw new ExecPolicyError(`configured ${cmd} path must be absolute`);
-      this.binaries.set(cmd, configured ?? findOnPath(cmd));
+      this.binaries.set(cmd, configured ?? bundledBinary(cmd) ?? findOnPath(cmd));
     }
   }
 

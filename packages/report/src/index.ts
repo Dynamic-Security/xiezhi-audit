@@ -1,5 +1,5 @@
 // Export pipeline: model → renderer → redactor (last step, cannot be disabled).
-import { canonicalJson, collectSecrets, redact } from '@xiezhi/contracts';
+import { canonicalJson, collectSecrets, redact, appVersion } from '@xiezhi/contracts';
 import type { Store } from '@xiezhi/store';
 import { buildReportModel, type ReportModel } from './model.js';
 import { renderMarkdown } from './markdown.js';
@@ -14,7 +14,7 @@ export { renderHtml, escapeHtml } from './html.js';
 
 export type ExportFormat = 'md' | 'html' | 'json' | 'sarif';
 
-export const TOOL_VERSION = '0.1.0';
+export const TOOL_VERSION = appVersion();
 
 export function renderJson(m: ReportModel): string {
   return JSON.stringify(JSON.parse(canonicalJson(m)), null, 2) + '\n';

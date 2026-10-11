@@ -2,6 +2,7 @@
 // `tools/list`, `tools/call`, and cancellation — over stdio (a process started by the executor and
 // handed in through `StdioLauncher`) or streamable HTTP (through the checked outbound client).
 import { OutboundError, outbound, type OutboundPolicy } from './outbound.js';
+import { appVersion } from '@xiezhi/contracts';
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
 export const MCP_SUPPORTED_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
@@ -209,7 +210,7 @@ export class McpClient {
   async connect(signal?: AbortSignal): Promise<McpServerInfo> {
     await this.transport.start(this.onMessage, this.onClose);
     const r = await this.request<{ protocolVersion?: string; capabilities?: { tools?: unknown }; serverInfo?: { name?: string; version?: string }; instructions?: string }>('initialize', {
-      protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: this.opts.clientName ?? 'xiezhi', version: this.opts.clientVersion ?? '0.1.0' },
+      protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: this.opts.clientName ?? 'xiezhi', version: this.opts.clientVersion ?? appVersion() },
     }, signal);
     const version = r.protocolVersion ?? '';
     if (!MCP_SUPPORTED_VERSIONS.includes(version)) throw new McpError('protocol', `unsupported MCP protocol version ${version || '(none)'}`);

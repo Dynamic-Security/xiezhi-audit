@@ -2,9 +2,8 @@
 // Built-in examples (repository `connector-packs/`) are installed on request. Packs drafted by AI from an
 // OpenAPI document land in `.drafts/<id>/` and become packs only after review; AI never writes scripts.
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { AppError, ConnectorPackSubmit, newId, sha256Hex, type ModelRef } from '@xiezhi/contracts';
+import { join, relative, sep } from 'node:path';
+import { AppError, ConnectorPackSubmit, newId, sha256Hex, type ModelRef, resourcePath } from '@xiezhi/contracts';
 import { boundaryDeclaration, newNonce, startSession, wrapUntrusted, type AuditTool, type ModelHub } from '@xiezhi/agent';
 import { PackError, PACK_NAME, loadPack, packScriptsHash, type Pack } from '@xiezhi/connectors';
 import { atomicWrite } from '@xiezhi/knowledge';
@@ -15,7 +14,7 @@ import { P } from '@xiezhi/knowledge';
 import { withLivePrompts } from './prompts.js';
 
 export function builtinPacksDir(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'connector-packs');
+  return resourcePath('connector-packs');
 }
 
 export function packDir(store: Store, name: string): string {

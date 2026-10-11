@@ -1,10 +1,9 @@
 // Rule files: rules/<lang>/<framework>/<name>.scm + .yaml. YAML is metadata only;
 // cross-node logic can only call built-in named post functions (no executable code in rules).
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, relative } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { canonicalJson, sha256Hex } from '@xiezhi/contracts';
+import { canonicalJson, sha256Hex, resourcePath } from '@xiezhi/contracts';
 
 export const POST_FUNCTIONS = [
   'spring_request_mapping', 'java_annotation_auth', 'java_filter_class', 'java_security_config',
@@ -60,10 +59,9 @@ export interface RuleSet {
   errors: string[];
 }
 
-/** Default rules directory: `<repo>/rules` (dev) — overridable for packaged installs. */
+/** Default rules directory: `rules/` of the resource root (repository or installed package). */
 export function defaultRulesDir(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return resolve(here, '..', '..', '..', '..', 'rules');
+  return resourcePath('rules');
 }
 
 function walk(dir: string, out: string[]): void {

@@ -15,60 +15,66 @@
 - 结果复核带修订历史；导出 Markdown、HTML、JSON、SARIF；知识库（skill）与 MCP 连接器（内置 Jira、飞书、OSV 等连接包）。
 - 内置评测工具（`xiezhi eval`）：基准样本、打分、回归门禁与消融实验。
 
+## 安装
+
+需要 Node.js 22.19 或更高版本，以及 [ripgrep](https://github.com/BurntSushi/ripgrep)（`rg`）；git 可选（Git 来源与增量审计用到）。
+
+```bash
+npm install -g xiezhi-audit@alpha
+```
+
+安装不编译任何原生模块。安装后先运行 `xiezhi doctor` 检查环境，缺少的工具会给出安装命令。
+
 ## 快速开始
 
 ```bash
-pnpm install && pnpm build
+xiezhi doctor
 ```
 
 ```bash
-node apps/cli/dist/main.js doctor
+xiezhi config add-provider gw --api openai-completions --base-url https://your-gateway/v1 --models your-model
 ```
 
 ```bash
-node apps/cli/dist/main.js config add-provider gw --api openai-completions --base-url https://your-gateway/v1 --models your-model
+xiezhi config set-secret gw
 ```
 
 ```bash
-node apps/cli/dist/main.js config set-secret gw
+xiezhi config set defaultModel gw/your-model
 ```
 
 ```bash
-node apps/cli/dist/main.js config set defaultModel gw/your-model
+xiezhi project create demo
 ```
 
 ```bash
-node apps/cli/dist/main.js project create demo
-```
-
-```bash
-node apps/cli/dist/main.js project add-repo demo --path /path/to/repo
+xiezhi project add-repo demo --path /path/to/repo
 ```
 
 仓库也可以来自 Git 地址（`--git https://… | git@host:path`，可加 `--ref`）或压缩包（`--archive repo.zip`，zip / tar / tar.gz）。私有 HTTPS 仓库先配置凭证：
 
 ```bash
-node apps/cli/dist/main.js config set-git-credential gitlab.example.com --username oauth2
+xiezhi config set-git-credential gitlab.example.com --username oauth2
 ```
 
 ```bash
-node apps/cli/dist/main.js audit start --project demo --yes
+xiezhi audit start --project demo --yes
 ```
 
 ```bash
-node apps/cli/dist/main.js export <auditId> --format sarif --out report.sarif
+xiezhi export <auditId> --format sarif --out report.sarif
 ```
 
 ### Web 工作台
 
 ```bash
-node apps/cli/dist/main.js serve
+xiezhi serve
 ```
 
 终端会打印 `http://127.0.0.1:4820/#boot=…` 一次性登录链接（5 分钟内有效、只能用一次）；加 `--open` 自动用系统默认浏览器打开（`XIEZHI_AUDIT_BROWSER` 可指定浏览器程序的绝对路径）。链接过期或服务重启后，另开终端获取新链接：
 
 ```bash
-node apps/cli/dist/main.js open
+xiezhi open
 ```
 
 服务运行期间，`project`、`audit`、`export` 命令自动通过本地 API 执行（`audit start --wait` 等待结束，`audit status <id> --follow` 跟随进度，均订阅事件流）；未启动服务时在终端里运行审计，Agent 的提问可以直接在终端回答（回车跳过）；模型与默认值请在界面“设置”中修改。
@@ -79,8 +85,10 @@ node apps/cli/dist/main.js open
 ## 开发
 
 ```bash
-pnpm build && pnpm typecheck && pnpm lint
+pnpm install && pnpm build && pnpm typecheck && pnpm lint
 ```
+
+从源码运行时用 `node apps/cli/dist/main.js` 代替 `xiezhi`。`pnpm release:pack` 在 `release/` 下生成 npm 包（`release/xiezhi-audit/` 与 `xiezhi-audit-<版本>.tgz`），可用 `npm install -g ./release/xiezhi-audit-<版本>.tgz` 本地验证。
 
 接口文档：服务运行时 `GET /api/v1/openapi.json`，快照在 `docs/api/openapi.json`。
 

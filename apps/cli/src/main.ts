@@ -5,7 +5,7 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { AppError, BUDGET_STAGES, CONFIG_MODEL_STAGES, NO_MODEL_STAGES, maskSecret, originOf, type AppConfig, type BudgetStage, type ModelApi, type SkillCategory } from '@xiezhi/contracts';
+import { AppError, appVersion, BUDGET_STAGES, CONFIG_MODEL_STAGES, NO_MODEL_STAGES, maskSecret, originOf, type AppConfig, type BudgetStage, type ModelApi, type SkillCategory } from '@xiezhi/contracts';
 import { Store, resolveDataDir } from '@xiezhi/store';
 import {
   Engine, renderThreatModelReport, approveKnowledgeDraft, findDraft, listAllDrafts, rejectKnowledgeDraft, addArchiveRepository, addGitRepository, addRepository, answerQuestion, createHunt, getBasis, getHunt, huntPlan, huntTargets, refreshHunt, createProject, getAudit, getProject, listProjects, listRepositories, runDoctor, type AuditPlan, type RunResult, queries as Q,
@@ -31,6 +31,7 @@ const HELP = `xiezhi — 代码安全审计
   serve [--port N] [--open]                         启动本地服务与 Web 工作台（仅监听 127.0.0.1，默认 4820）；--open 自动打开浏览器
   open                                              服务运行中时，生成新的一次性浏览器登录链接
   doctor [--json]                                   环境诊断
+  version                                           显示版本
   config list | get <key> | set <key> <value>       配置（defaultModel / fallbackModel 用 provider/model；
                                                     stageModels.<阶段> 用 provider/model、default 或 none）
   config add-provider <id> --api <api> --base-url <url> --models a,b
@@ -692,6 +693,7 @@ export async function main(argv: string[]): Promise<number> {
   }
   switch (cmd) {
     case undefined: case 'help': case '--help': case '-h': print(HELP); return EXIT_OK;
+    case 'version': case '--version': case '-V': print(appVersion()); return EXIT_OK;
     case 'doctor': {
       const checks = await runDoctor(dataDir);
       if (sub === '--json' || args.includes('--json')) printJson(checks);
@@ -711,9 +713,9 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-const isEntry = !!process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
-if (isEntry) {
-  main(process.argv.slice(2)).then(
+/** Runs the CLI and sets the exit code; the entry point of `node dist/main.js` and of the npm package's `bin/xiezhi.js`. */
+export function runCli(argv: string[]): Promise<void> {
+  return main(argv).then(
     (code) => { flushRecordings(); process.exitCode = code; },
     (e) => {
       flushRecordings();
@@ -722,3 +724,6 @@ if (isEntry) {
     },
   );
 }
+
+const isEntry = !!process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+if (isEntry) void runCli(process.argv.slice(2));

@@ -1,12 +1,11 @@
 // HTTP service: 127.0.0.1 only, Host/Origin/CSRF/bearer checks, unified error
 // mapping, JSON logs without secrets, the React app as static files with SPA fallback.
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifySwagger from '@fastify/swagger';
-import { AppError, newId, redactDeep } from '@xiezhi/contracts';
+import { AppError, newId, redactDeep, resourcePath } from '@xiezhi/contracts';
 import type { Store } from '@xiezhi/store';
 import type { Engine } from '@xiezhi/engine';
 import { SERVER_VERSION, type AppContext } from './context.js';
@@ -55,8 +54,8 @@ const PUBLIC_API = new Set(['GET /api/v1/health', 'POST /api/session/bootstrap',
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export function defaultWebRoot(): string | null {
-  const here = fileURLToPath(new URL('.', import.meta.url));
-  for (const c of [resolve(here, '../../web/dist'), resolve(here, '../web')]) if (existsSync(join(c, 'index.html'))) return c;
+  // `web/` of an installed package; `apps/web/dist` of a source checkout.
+  for (const c of [resourcePath('web'), resourcePath('apps', 'web', 'dist')]) if (existsSync(join(c, 'index.html'))) return c;
   return null;
 }
 
