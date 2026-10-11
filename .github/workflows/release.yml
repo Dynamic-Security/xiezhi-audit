@@ -56,7 +56,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
-      - run: pnpm typecheck
+      # builds with tsc (type-checking every package in dependency order) before packing; a separate typecheck
+      # would fail on a fresh checkout, which has no dist/*.d.ts of the workspace packages yet.
       - run: pnpm release:pack
       - name: Checksums
         working-directory: release
