@@ -70,7 +70,7 @@ export async function systemModelStep(rt: AuditRuntime, ctx: AttemptContext, pro
   const model = stageModel(rt.strategy, 'profile')!;
   const outcome = await rt.session({
     stepId: ctx.stepId, attempt: ctx.attempt, kind: 'profile', phase: 'profile', model, signal: ctx.signal,
-    prompt: lines.join('\n'), submitTools: [submit], requiredSubmits: ['submit_system_model'],
+    prompt: lines.join('\n'), submitTools: [submit], requiredSubmits: ['submit_system_model'], serviceCards: true,
     maxTurns: Math.min(40, rt.strategy.limits.maxTurnsPerStep),
   });
   const err = sessionError(outcome);

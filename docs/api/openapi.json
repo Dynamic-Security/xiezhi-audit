@@ -8456,7 +8456,7 @@
   "info": {
     "description": "仅监听 127.0.0.1。浏览器使用会话 cookie + X-CSRF-Token；CLI 使用 <data-dir>/run/api.json 中的 Bearer token。",
     "title": "xiezhi-audit local API",
-    "version": "0.2.0"
+    "version": "0.1.0-alpha"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -38458,6 +38458,21 @@
                   "properties": {
                     "detail": {
                       "type": "string"
+                    },
+                    "limits": {
+                      "additionalProperties": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "contextWindow": {
+                            "type": "integer"
+                          },
+                          "maxTokens": {
+                            "type": "integer"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "object"
                     },
                     "models": {
                       "items": {

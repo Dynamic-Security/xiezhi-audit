@@ -22,9 +22,12 @@ export function triageIdentity(rt: AuditRuntime) {
   const s = rt.strategy;
   const roots = [...rt.indexes.keys()].sort().map((name) => `${name}:${rt.views.get(name)?.manifest.rootHash ?? ''}`);
   const m = s.models.triage;
+  // The candidates themselves — a new indexer or rule set changes them on the same trees, and a reused
+  // triage kept the old list (new secret sinks unlisted, entry ids at their old lines).
+  const candidates = sha256Hex(buildCandidates(rt).map((c) => `${c.id}|${c.line}|${c.label}`).join('\n'));
   return {
     triage: sha256Hex(canonicalJson({
-      roots, focus: s.focus.categories, scope: s.scope, maxCandidates: s.limits.maxCandidates, minScore: s.limits.minTriageScore ?? 0, logic: s.stages.threatHypotheses === true,
+      roots, candidates, focus: s.focus.categories, scope: s.scope, maxCandidates: s.limits.maxCandidates, minScore: s.limits.minTriageScore ?? 0, logic: s.stages.threatHypotheses === true,
       model: m ? `${m.provider}/${m.model}` : null, v: TRIAGE_VERSION,
     })),
   };
@@ -183,6 +186,31 @@ export function candidateResolver(listed: Candidate[]): (raw: string) => string 
 }
 
 /**
+ * Share of the triage model's context window one candidate listing may take; the rest holds the system prompt, the
+ * code the model reads and the scores it submits.
+ */
+export const TRIAGE_LISTING_SHARE = 0.4;
+/**
+ * Characters per token assumed for a listing: ids, paths and symbols tokenize densely (a 255k-character listing
+ * counted 136k Claude tokens, about 1.9 per token).
+ */
+export const LISTING_CHARS_PER_TOKEN = 1.5;
+
+/** Listing lines in order, split into parts of at most `maxChars` (a longer line is a part of its own). */
+export function splitListing(lines: string[], maxChars: number): string[][] {
+  const parts: string[][] = [];
+  let cur: string[] = [];
+  let size = 0;
+  for (const line of lines) {
+    if (cur.length && size + line.length + 1 > maxChars) { parts.push(cur); cur = []; size = 0; }
+    cur.push(line);
+    size += line.length + 1;
+  }
+  if (cur.length) parts.push(cur);
+  return parts;
+}
+
+/**
  * `heuristicOnly`: the deterministic ordering without the triage model — the fallback when the model
  * failed, identical to a strategy without `models.triage`.
  */
@@ -192,7 +220,9 @@ export async function triageStep(rt: AuditRuntime, ctx: AttemptContext, opts: { 
   let shownUnscored = new Set<string>();
   if (model && candidates.length > 0) {
     const shortlist = rankCandidates(candidates).slice(0, Math.ceil(rt.strategy.limits.maxCandidates * 1.5));
-    const listing = shortlist.map((c) => `- ${c.id} | ${c.repo}:${c.path}:${c.line} | ${c.label}`).join('\n');
+    const lines = shortlist.map((c) => `- ${c.id} | ${c.repo}:${c.path}:${c.line} | ${c.label}`);
+    // a listing larger than the model's window would leave no room for the answer: it is scored in parts, one session each.
+    const parts = splitListing(lines, Math.floor(rt.contextWindow(model) * TRIAGE_LISTING_SHARE * LISTING_CHARS_PER_TOKEN));
     const resolve = candidateResolver(shortlist);
     const submit: AuditTool = {
       name: 'submit_triage', kind: 'submit', parameters: SubmitTriage, description: P('tool.submit_triage'),
@@ -202,16 +232,18 @@ export async function triageStep(rt: AuditRuntime, ctx: AttemptContext, opts: { 
       },
       run: () => ({ text: 'accepted' }),
     };
-    const outcome = await rt.session({
-      stepId: ctx.stepId, attempt: ctx.attempt, kind: 'triage', phase: 'hunt', model, signal: ctx.signal,
-      prompt: `${P('triage.intro')}\n\n${listing}`,
-      submitTools: [submit], requiredSubmits: ['submit_triage'], maxTurns: Math.min(30, rt.strategy.limits.maxTurnsPerStep),
-    });
-    const err = sessionError(outcome);
-    if (err) throw err;
     const scores = new Map<string, { score: number; reason: string }>();
-    for (const sub of outcome.submissions.submit_triage as { scores: { candidateId: string; score: number; reason: string }[] }[]) {
-      for (const s of sub.scores) { const id = resolve(s.candidateId); if (id) scores.set(id, { score: s.score, reason: s.reason }); }
+    for (const part of parts) {
+      const outcome = await rt.session({
+        stepId: ctx.stepId, attempt: ctx.attempt, kind: 'triage', phase: 'hunt', model, signal: ctx.signal,
+        prompt: `${P('triage.intro')}\n\n${part.join('\n')}`,
+        submitTools: [submit], requiredSubmits: ['submit_triage'], maxTurns: Math.min(30, rt.strategy.limits.maxTurnsPerStep),
+      });
+      const err = sessionError(outcome);
+      if (err) throw err;
+      for (const sub of outcome.submissions.submit_triage as { scores: { candidateId: string; score: number; reason: string }[] }[]) {
+        for (const s of sub.scores) { const id = resolve(s.candidateId); if (id) scores.set(id, { score: s.score, reason: s.reason }); }
+      }
     }
     candidates = candidates.map((c) => (scores.has(c.id) ? { ...c, llmScore: scores.get(c.id)!.score, reason: scores.get(c.id)!.reason } : c));
     shownUnscored = new Set(shortlist.filter((c) => !scores.has(c.id)).map((c) => c.id));

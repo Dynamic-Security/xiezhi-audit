@@ -8,7 +8,7 @@ import { fromJson } from '@xiezhi/store';
 import type { HypothesisRow } from '../business.js';
 import { EXPERTS_DONE } from '../domain-plan.js';
 import {
-  DOMAIN_ROUNDS, HYPOTHESES_PER_ROUND, NEXT_ROUND_MIN_LEFT, domainExpertStep, domainGaps, domainLeads, domainUsed, expertPool, gapsEmpty, planDomains, planDomainsOf,
+  DOMAIN_ROUNDS, HYPOTHESES_PER_ROUND, NEXT_ROUND_MIN_LEFT, domainExpertStep, domainGaps, domainLeads, domainUsed, expertPool, gapsEmpty, hypothesisOwner, planDomains, planDomainsOf,
   type DomainGaps, type DomainOutput, type OpenLead, type PlannedDomain,
 } from '../domains.js';
 import { pool } from '../pool.js';
@@ -143,7 +143,7 @@ export class DomainStage {
     if (store.listEvents(auditId, 0, ['judgement.made']).some((e) => e.payload.kind === 'domain_plan')) return;
     rt.event('judgement.made', {
       kind: 'domain_plan', source: this.domains[0]?.source ?? 'fallback',
-      domains: this.domains.map((d) => ({ id: d.id, name: d.name, categories: d.categories, mechanisms: d.mechanisms.length, leads: d.leads.length, indexLeads: this.leads.get(d.id)?.length ?? 0, source: d.source })),
+      domains: this.domains.map((d) => ({ id: d.id, name: d.name, categories: d.categories, mechanisms: d.mechanisms.length, leads: d.leads.length, indexLeads: this.leads.get(d.id)?.length ?? 0, source: d.source, ...(d.mergedFrom ? { mergedFrom: d.mergedFrom } : {}) })),
     });
   }
 
@@ -159,9 +159,11 @@ export class DomainStage {
     if (!threatHypothesesOn(s) && !requirementRisksOn(rt)) return [];
     const model = this.slotKey(e);
     const runnable = this.runnable();
-    const owner = (cat: string) => runnable.find((d) => d.categories.includes(cat))?.id;
+    // In a multi-repository audit each repository's threat model has its own domains; a hypothesis goes to a
+    // covering domain of its own repository first (php-invoice's went to cs-depot's experts, which left them open).
+    const owner = (h: HypothesisRow) => hypothesisOwner(runnable, h.category, rt.repos.find((r) => r.id === h.repository_id)?.name, this.leads);
     return verificationTargets(rt)
-      .filter((h) => owner(h.category) === e.domain.id && (h.status === 'proposed' || (this.multi && h.status !== 'dismissed' && h.status !== 'converted'))
+      .filter((h) => owner(h) === e.domain.id && (h.status === 'proposed' || (this.multi && h.status !== 'dismissed' && h.status !== 'converted'))
         && !fromJson<{ model: string }[]>((h as HypothesisRow & { votes?: string }).votes, []).some((v) => v.model === model))
       .slice(0, HYPOTHESES_PER_ROUND);
   }

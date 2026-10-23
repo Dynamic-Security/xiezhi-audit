@@ -11,6 +11,7 @@ import A from './audits.module.css';
 import { CANDIDATE_STATUS, CandidateRow, headline } from './candidates';
 import { SEGMENT_LABEL, StatusBar } from './StatusBar';
 import { FALLBACK_REASON, ModelBadge, RunningPanel } from './Running';
+import { addSubEvent, subGoal, subNoSlot, type SubNode } from './subagent';
 
 const ICON: Record<string, IconName> = {
   'file.read': 'file', 'tool.called': 'tool', 'knowledge.loaded': 'book', 'connector.queried': 'link', 'connector.write_requested': 'link', 'connector.write_decided': 'link', 'question.asked': 'help', 'question.answered': 'user',
@@ -214,8 +215,6 @@ function CandidateList({ cands }: { cands: ExecCandidateDto[] }) {
   );
 }
 
-/** A sub-agent's part of a step: its events nested under a node where it first appears. */
-interface SubNode { kind: 'sub'; id: string; started: EventDto | null; finished: EventDto | null; events: EventDto[] }
 type Node = { kind: 'event'; e: EventDto } | SubNode;
 interface Group { key: string; step: StepDto | null; events: EventDto[]; nodes: Node[] }
 const sessionOf = (e: EventDto) => e.payload.session as { id: string; role: 'main' | 'task'; parent?: string } | undefined;
@@ -223,6 +222,8 @@ const sessionOf = (e: EventDto) => e.payload.session as { id: string; role: 'mai
 function SubAgentNode({ n, results, onVuln }: { n: SubNode; results: Map<string, EventDto>; onVuln: (vid: string) => void }) {
   const f = n.finished?.payload;
   const running = !n.finished;
+  const noSlot = subNoSlot(n);
+  const goal = subGoal(n);
   const [open, setOpen] = useState<boolean | null>(null);
   const expanded = open ?? running;
   const turns = n.events.filter((e) => e.type === 'agent.note').length;
@@ -231,8 +232,9 @@ function SubAgentNode({ n, results, onVuln }: { n: SubNode; results: Map<string,
       <button className={A.subHead} aria-expanded={expanded} onClick={() => setOpen(!expanded)}>
         <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} />
         <Icon name="layers" size={13} />
-        <span className={A.subGoal}>子 Agent：{s(n.started?.payload.goal) || '（目标未记录）'}</span>
+        <span className={A.subGoal}>子 Agent：{goal || '（目标未记录）'}</span>
         {running ? <Badge tone="accent" dot pulse>进行中</Badge>
+          : noSlot ? <Badge tone="warn">未开始</Badge>
           : <Badge tone={f?.status === 'completed' ? 'ok' : 'warn'}>{f?.status === 'completed' ? '完成' : label(SESSION_STATUS, f?.status)}</Badge>}
         <span className={ui.faint} style={{ marginLeft: 'auto', fontSize: 12 }}>
           {[f?.turns !== undefined ? `${s(f.turns)} 回合` : turns ? `${turns} 回合` : '', took(f?.ms), n.events.filter((e) => e.type === 'tool.called').length ? `${n.events.filter((e) => e.type === 'tool.called').length} 次调用` : ''].filter(Boolean).join(' · ')}
@@ -295,9 +297,7 @@ export function TrajectoryView({ aid, audit, types, q, step, onTypes, onQ, onVul
       if (sess?.role === 'task') {
         let n = cur.nodes.find((x): x is SubNode => x.kind === 'sub' && x.id === sess.id);
         if (!n) { n = { kind: 'sub', id: sess.id, started: null, finished: null, events: [] }; cur.nodes.push(n); }
-        if (e.type === 'task.started') n.started = e;
-        else if (e.type === 'task.finished') n.finished = e;
-        else n.events.push(e);
+        addSubEvent(n, e);
       } else cur.nodes.push({ kind: 'event', e });
     }
     return { groups, results };

@@ -39,6 +39,8 @@ export const PUSHED_LEADS = 10;
 export const PUSHED_FINDINGS = 10;
 /** Hypotheses one expert round must answer at most; the rest wait for the next round or HYP-R. */
 export const HYPOTHESES_PER_ROUND = 15;
+/** Domains per audit plan at most, the engine's “其他” included. */
+export const MAX_DOMAINS = 9;
 
 export interface PlannedDomain {
   /** D1, D2, … in plan order: part of step lineages (`DOM-D1-R1`). */
@@ -59,6 +61,8 @@ export interface PlannedDomain {
   late?: boolean;
   /** focus a person added, from the domain's next round on. */
   userFocus?: string[];
+  /** The threat-model domains over MAX_DOMAINS that the “其他” domain took over. */
+  mergedFrom?: string[];
 }
 
 /** a person's change to an audit's domain plan, recorded as a `judgement.made` event. */
@@ -180,10 +184,30 @@ function basePlan(src: PlanSource): PlannedDomain[] {
   const chosen: Omit<PlannedDomain, 'id'>[] = byName.size
     ? [...byName.values()]
     : FALLBACK_DOMAINS.map((d) => ({ ...d, categories: [...d.categories], mechanisms: [], leads: [], source: 'fallback' as const }));
-  const covered = new Set(chosen.flatMap((d) => d.categories));
-  const missing = VULN_CATEGORIES.filter((c) => !covered.has(c));
-  if (missing.length) chosen.push({ name: '其他', focus: '其他领域没有覆盖的漏洞类别。', categories: [...missing], mechanisms: [], leads: [], source: 'completion' });
-  return chosen.slice(0, 9).map((d, i) => ({ ...d, mechanisms: d.mechanisms.slice(0, 6), leads: d.leads.slice(0, 24), id: `D${i + 1}` }));
+  return capDomains(chosen).map((d, i) => ({ ...d, mechanisms: d.mechanisms.slice(0, 6), leads: d.leads.slice(0, 24), id: `D${i + 1}` }));
+}
+
+/**
+ * At most MAX_DOMAINS domains, every category owned. The “其他” domain takes the categories no kept domain
+ * covers; when domains are over the limit, the last slot is “其他” and the domains past it are merged into it (their
+ * categories, focus, mechanisms and risk points) — capping never leaves a category without an expert.
+ */
+function capDomains(chosen: Omit<PlannedDomain, 'id'>[]): Omit<PlannedDomain, 'id'>[] {
+  const uncovered = (ds: Omit<PlannedDomain, 'id'>[]) => {
+    const covered = new Set(ds.flatMap((d) => d.categories));
+    return VULN_CATEGORIES.filter((c) => !covered.has(c));
+  };
+  // “其他” needs a slot when categories are left over at the limit, or when domains are over it.
+  const full = chosen.length > MAX_DOMAINS || (chosen.length === MAX_DOMAINS && uncovered(chosen).length > 0);
+  const kept = full ? chosen.slice(0, MAX_DOMAINS - 1) : chosen;
+  const dropped = chosen.slice(kept.length);
+  const missing = uncovered(kept);
+  if (!missing.length && !dropped.length) return kept;
+  const categories = [...new Set([...missing, ...dropped.flatMap((d) => d.categories)])];
+  const focus = ['其他领域没有覆盖的漏洞类别。', ...(dropped.length ? [`领域数超过上限 ${MAX_DOMAINS}，以下领域并入本领域：${dropped.map((d) => `${d.name}（${d.focus}）`).join('；')}`] : [])].join('');
+  const mechanisms = dropped.flatMap((d) => d.mechanisms).filter((m, i, all) => all.findIndex((x) => x.name === m.name) === i);
+  const leads = dropped.flatMap((d) => d.leads).filter((l, i, all) => all.findIndex((x) => x.statement === l.statement) === i);
+  return [...kept, { name: '其他', focus, categories, mechanisms, leads, source: 'completion', ...(dropped.length ? { mergedFrom: dropped.map((d) => d.name) } : {}) }];
 }
 
 const STATE_CHANGING = /^(POST|PUT|PATCH|DELETE|ANY)\b/i;
@@ -214,6 +238,10 @@ export function domainLeads(domains: PlannedDomain[], candidates: Candidate[], i
       const sensitive = STATE_CHANGING.test(key) || (entry?.pathTemplate ?? '').includes('{') || /mutation/i.test(key);
       targets = [...covering('authz_object'), ...covering('authz_function'), ...covering('authn'), ...(sensitive ? covering('business_logic') : [])];
     }
+    // A multi-repository audit has each repository's domains; a candidate goes to the covering domains of its
+    // own repository (and those not tied to one), not to another repository's experts.
+    const own = targets.filter((d) => { const r = domainRepo(d); return !r || r === c.repo; });
+    if (own.length) targets = own;
     for (const d of new Set(targets)) {
       const l = out.get(d.id)!;
       if (l.length < MAX_DOMAIN_LEADS) l.push(c);
@@ -466,6 +494,27 @@ export function pruneExpertSubmission(args: Record<string, unknown>, issues: str
   };
 }
 
+/**
+ * The repository a domain works in when everything it was given (mechanisms, threat-model leads, pushed
+ * leads) is in one: its tools and unqualified code references default to it. A domain spanning several repositories
+ * (merged by name) or with nothing located keeps the audit's first target.
+ */
+export function domainRepo(d: Pick<PlannedDomain, 'mechanisms' | 'leads'>, leads: readonly { repo: string }[] = []): string | undefined {
+  const repos = new Set([...d.mechanisms.map((m) => m.location.repo), ...d.leads.map((l) => l.repo), ...leads.map((c) => c.repo)].filter(Boolean));
+  return repos.size === 1 ? [...repos][0] : undefined;
+}
+
+/**
+ * The domain whose expert answers a hypothesis: the first runnable domain covering its category — of the
+ * hypothesis's own repository first, then one not tied to a repository (a multi-repository audit has each
+ * repository's domains).
+ */
+export function hypothesisOwner(domains: readonly PlannedDomain[], category: string, repo: string | undefined, leads?: ReadonlyMap<string, readonly { repo: string }[]>): string | undefined {
+  const covering = domains.filter((d) => d.categories.includes(category));
+  const repoOf = (d: PlannedDomain) => domainRepo(d, leads?.get(d.id));
+  return (covering.find((d) => repo !== undefined && repoOf(d) === repo) ?? covering.find((d) => !repoOf(d)) ?? covering[0])?.id;
+}
+
 /** One round of one domain expert. */
 export async function domainExpertStep(rt: AuditRuntime, d: PlannedDomain, round: number, leads: Candidate[], lineage: string, ctx: AttemptContext, o: DomainExpertOptions): Promise<StepResult> {
   const { state } = loadState(rt.store, rt.auditId);
@@ -512,9 +561,11 @@ export async function domainExpertStep(rt: AuditRuntime, d: PlannedDomain, round
   };
   const impact = rt.audit.scene === 'incremental' ? rt.impact() : null;
   const model = o.model ?? rt.strategy.models.audit;
+  const repo = domainRepo(d, leads);
   const outcome = await rt.session({
     stepId: ctx.stepId, attempt: ctx.attempt, kind: 'hunt', phase: 'hunt', model, signal: ctx.signal,
     prompt: expertPrompt(rt, d, round, leads, o), submitTools: [submit, submitState], requiredSubmits: ['submit_findings'], maxTurns: rt.strategy.limits.maxTurnsPerStep,
+    ...(repo ? { repo } : {}),
     extraTools: [...(impact ? [diffTool(rt, impact)] : []), taskTool(rt, ctx, model), profileTool(rt), stateQueryTool(rt, o.statePrefix),
       ...(leads.length > PUSHED_LEADS || (o.previous?.findings.length ?? 0) > PUSHED_FINDINGS ? [domainContextTool(leads, o.previous?.findings ?? [])] : [])],
     // a summary of the cognitive state (state_query for the rest); no threat-model summary in the

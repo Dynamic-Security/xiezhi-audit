@@ -179,7 +179,7 @@ export function NewAuditPage() {
               </div>
             </Field>
           ) : null}
-          {mode === 'single' && <Field group label="审计对象" hint={projectId && auditable.length === 0 ? '该项目还没有可审计的仓库（Java、Go、Python、JavaScript/TypeScript 后端、PHP、Kotlin、C#）' : undefined}>
+          {mode === 'single' && <Field group label="审计对象" hint={projectId && auditable.length === 0 ? '该项目还没有可审计的仓库（Java、Go、Python、JavaScript/TypeScript 后端、PHP、Kotlin、C#、Ruby、Rust）' : undefined}>
             <div className={A.repoList}>
               {auditable.map((r) => (
                 <button key={r.id} className={cx(A.repoOpt, r.id === repoId && A.repoOptOn)} onClick={() => { setRepoId(r.id); setRef(undefined); }}>

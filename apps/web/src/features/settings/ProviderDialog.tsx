@@ -1,6 +1,7 @@
 // Add / edit a model provider: probe the service's models and pick them from a searchable list
 // (manual IDs still possible), check the address, key and each picked model before saving; saving is not blocked
-// by an unchecked or failed check, only flagged.
+// by an unchecked or failed check, only flagged. Each picked model carries its context window and output cap: filled
+// from the probe when the service lists them, editable by hand (the server registers 128k / 8192 otherwise).
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ProviderCheckResult, ProviderDto, ProviderProbeResult } from '@xiezhi/contracts';
@@ -12,10 +13,34 @@ import S from './settings.module.css';
 const MAX_MODELS = 100;
 type ModelEntry = ProviderDto['models'][number];
 type CheckState = { at: string; result: ProviderCheckResult } | null;
+type Limits = { contextWindow?: number; maxTokens?: number };
+type LimitsMap = Record<string, Limits>;
 
-function ModelPicker({ selected, setSelected, configured, discovered, check }: {
+/** A token count typed by hand: digits, optionally with k (thousand) or m (million); empty or invalid clears it. */
+function parseTokens(raw: string): number | undefined {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*([km]?)\s*$/i.exec(raw);
+  if (!m) return undefined;
+  const n = Math.round(Number(m[1]) * (m[2]!.toLowerCase() === 'k' ? 1000 : m[2]!.toLowerCase() === 'm' ? 1_000_000 : 1));
+  return n > 0 ? n : undefined;
+}
+
+function LimitInput({ label, value, min, onChange }: { label: string; value: number | undefined; min: number; onChange: (v: number | undefined) => void }) {
+  const [text, setText] = useState(value ? String(value) : '');
+  useEffect(() => { setText(value ? String(value) : ''); }, [value]);
+  const parsed = parseTokens(text);
+  const bad = !!text.trim() && (parsed === undefined || parsed < min);
+  return (
+    <label className={S.limitField}>
+      <span>{label}</span>
+      <input className={cx(ui.input, ui.mono, bad && S.limitBad)} inputMode="numeric" placeholder="未设置" value={text} title={bad ? `至少 ${min}` : undefined}
+        onChange={(e) => setText(e.target.value)} onBlur={() => { const v = parseTokens(text); onChange(v !== undefined && v >= min ? v : undefined); }} />
+    </label>
+  );
+}
+
+function ModelPicker({ selected, setSelected, configured, discovered, check, limits, setLimits }: {
   selected: string[]; setSelected: (ids: string[]) => void; configured: string[]; discovered: string[] | null;
-  check: CheckState;
+  check: CheckState; limits: LimitsMap; setLimits: (id: string, l: Limits) => void;
 }) {
   const [q, setQ] = useState('');
   const [manual, setManual] = useState('');
@@ -59,6 +84,13 @@ function ModelPicker({ selected, setSelected, configured, discovered, check }: {
                 {r && <Badge tone={r.ok ? 'ok' : 'danger'}>{r.ok ? `可用 · ${r.ms} ms` : '不可用'}</Badge>}
               </label>
               {r && !r.ok && <div className={S.pickerErr}>{r.detail}</div>}
+              {on && (
+                <div className={S.limits}>
+                  <LimitInput label="上下文窗口" min={1024} value={limits[id]?.contextWindow} onChange={(v) => setLimits(id, { ...limits[id], contextWindow: v })} />
+                  <LimitInput label="最大输出" min={256} value={limits[id]?.maxTokens} onChange={(v) => setLimits(id, { ...limits[id], maxTokens: v })} />
+                  {!limits[id]?.contextWindow && <span className={S.limitHint}>未设置时按 128k 上下文、8192 输出处理</span>}
+                </div>
+              )}
             </li>
           );
         })}
@@ -79,6 +111,9 @@ export function ProviderDialog({ open, onClose, existing, autoProbe }: { open: b
   const [key, setKey] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [discovered, setDiscovered] = useState<string[] | null>(null);
+  /** Context window / output cap per model: the saved values, then what a probe reports for models without one. */
+  const [limits, setLimitsMap] = useState<LimitsMap>({});
+  const setLimits = (mid: string, l: Limits) => setLimitsMap((cur) => ({ ...cur, [mid]: l }));
   const [probe, setProbe] = useState<{ ok: boolean; detail: string } | null>(null);
   const [check, setCheck] = useState<CheckState>(null);
   const [busy, setBusy] = useState<'save' | 'probe' | 'check' | null>(null);
@@ -95,7 +130,15 @@ export function ProviderDialog({ open, onClose, existing, autoProbe }: { open: b
     try {
       const r = await api.post<ProviderProbeResult>('/settings/model-providers/probe', body);
       setProbe({ ok: r.ok, detail: r.detail });
-      if (r.ok) setDiscovered(r.models);
+      if (r.ok) {
+        setDiscovered(r.models);
+        // a value already set (saved or typed) is kept; the probe fills only what is missing.
+        setLimitsMap((cur) => {
+          const next = { ...cur };
+          for (const [mid, l] of Object.entries(r.limits ?? {})) next[mid] = { contextWindow: cur[mid]?.contextWindow ?? l.contextWindow, maxTokens: cur[mid]?.maxTokens ?? l.maxTokens };
+          return next;
+        });
+      }
     } catch (e) { setErr(e instanceof ApiError ? `${e.message}${e.hint ? `：${e.hint}` : ''}` : String(e)); }
     setBusy(null);
   };
@@ -112,7 +155,8 @@ export function ProviderDialog({ open, onClose, existing, autoProbe }: { open: b
   useEffect(() => {
     if (!open) return;
     setId(existing?.id ?? ''); setApiKind(existing?.api ?? 'openai-completions'); setBaseUrl(existing?.baseUrl ?? ''); setKey('');
-    setSelected(existing?.models.map((m) => m.id) ?? []); setDiscovered(null); setProbe(null); setCheck(null); setErr(null);
+    setSelected(existing?.models.map((m) => m.id) ?? []); setDiscovered(null); setProbe(null);
+    setLimitsMap(Object.fromEntries((existing?.models ?? []).map((m) => [m.id, { contextWindow: m.contextWindow, maxTokens: m.maxTokens }]))); setCheck(null); setErr(null);
   }, [open, existing]);
   // Opened from a provider card's “探测可用模型”: probe with the saved key at once.
   useEffect(() => {
@@ -134,7 +178,11 @@ export function ProviderDialog({ open, onClose, existing, autoProbe }: { open: b
     setErr(null);
     // Keep what is already known about a model (name, context window…); new picks are plain IDs.
     const keep = new Map<string, ModelEntry>((existing?.models ?? []).map((m) => [m.id, m]));
-    const list = selected.map((m) => keep.get(m) ?? { id: m });
+    const list = selected.map((m) => {
+      const { contextWindow: _c, maxTokens: _t, ...base } = keep.get(m) ?? { id: m };
+      const l = limits[m];
+      return { ...base, ...(l?.contextWindow ? { contextWindow: l.contextWindow } : {}), ...(l?.maxTokens ? { maxTokens: l.maxTokens } : {}) };
+    });
     try {
       if (existing) {
         const r = await api.patch<ProviderDto & { keyCleared?: boolean }>(`/settings/model-providers/${existing.id}`, { api: apiKind, baseUrl, models: list, ...(key ? { apiKey: key } : {}) });
@@ -173,7 +221,7 @@ export function ProviderDialog({ open, onClose, existing, autoProbe }: { open: b
       </Field>
       {originChanged && !key && <div className={ui.banner} style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}><Icon name="alert" />服务地址的来源（origin）已变更：密钥与地址绑定，探测与测验不会带上原密钥，保存后原密钥会被清除。</div>}
       <Field label="模型" hint="勾选要使用的模型；按服务端命名，例如 openai/gpt-6-luna">
-        <ModelPicker key={open ? existing?.id ?? 'new' : 'closed'} selected={selected} setSelected={setSelected} configured={configured} discovered={discovered} check={check} />
+        <ModelPicker key={open ? existing?.id ?? 'new' : 'closed'} selected={selected} setSelected={setSelected} configured={configured} discovered={discovered} check={check} limits={limits} setLimits={setLimits} />
       </Field>
       {probe && <div className={cx(S.result, probe.ok ? S.resultOk : S.resultBad)} role="status"><Icon name={probe.ok ? 'check' : 'alert'} size={13} />探测：{probe.detail}</div>}
       {check && (

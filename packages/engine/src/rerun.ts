@@ -7,6 +7,7 @@ import { createAudit, createReverifyAudit } from './services.js';
 
 interface AuditRow {
   id: string; project_id: string; scene: string; mode: string | null; title: string; status: string; scope: string; strategy_frozen: string | null; strategy_draft: string;
+  strategy_sources: string;
   base_audit_id: string | null; auto_start: number;
 }
 
@@ -49,6 +50,10 @@ export function rerunAudit(store: Store, knownModels: Set<string>, sourceId: str
       ...(incremental && !repo.base_requested_ref && src.base_audit_id ? { baseAuditId: src.base_audit_id } : {}),
     });
     if (!incremental) store.update('audit', { id }, { base_audit_id: src.id });
+    // The same strategy keeps the source's layer of each value. As a task override everything counted as
+    // chosen by the user, so a rerun turned off what follows the system default — ⑨ coverage completion
+    // (`coverageTarget.onShortfall`) did not run and reopened units left the rerun partial.
+    store.update('audit', { id }, { strategy_sources: { ...fromJson<Record<string, string>>(store.get<{ strategy_sources: string }>('SELECT strategy_sources FROM audit WHERE id = ?', id)!.strategy_sources, {}), ...fromJson<Record<string, string>>(src.strategy_sources, {}) } });
   }
   const a = store.get<{ scope: string }>('SELECT scope FROM audit WHERE id = ?', id)!;
   store.update('audit', { id }, { scope: { ...fromJson<Record<string, unknown>>(a.scope, {}), rerunOf: src.id } });

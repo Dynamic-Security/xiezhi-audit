@@ -106,7 +106,8 @@ const lines = (a: Record<string, unknown>): string => (a.startLine ? `:${s(a.sta
 export function toolArgs(tool: string, args: unknown): string {
   if (!args || typeof args !== 'object') return '';
   const a = args as Record<string, unknown>;
-  if (a.truncated) return '';
+  // Arguments too large for the event keep a JSON preview: its first string field, like the default below.
+  if (a.truncated) return typeof a.preview === 'string' ? (/^\{"[^"]+":"((?:[^"\\]|\\.)*)"/.exec(a.preview)?.[1] ?? '').slice(0, 80) : '';
   const repo = a.repo ? `${s(a.repo)}:` : '';
   switch (tool) {
     case 'read': return `${repo}${s(a.path)}${lines(a)}`;
@@ -178,7 +179,7 @@ export function gateCheckText(c: { name: string; ok: boolean; detail: string }):
       return `需要结论的项 ${n[0] ?? 0}/${n[1] ?? 0} 已结论${parts.length ? `（${parts.join('、')}）` : ''}`;
     }
     case 'reconciled': return n[0] ? `${n[0]} 条发现未归并` : '发现都已归并';
-    case 'blocking_questions': return n[0] ? `${n[0]} 个影响结论的提问未回答` : '没有未回答的提问';
+    case 'blocking_questions': return n[0] ? `${n[0]} 个影响结论的提问未回答` : '没有影响结论的未回答提问';
     case 'hypotheses': return n.length >= 2 ? `风险假设 ${n[0]}/${n[1]} 已验证` : c.detail;
     case 'coverage': return n.length >= 4 ? `覆盖：入口 ${n[0]}/${n[1]}，危险点 ${n[2]}/${n[3]}` : c.detail;
     case 'unconcluded': {

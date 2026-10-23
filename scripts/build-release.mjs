@@ -7,9 +7,9 @@
 //   rules/ skills/ connector-packs/ web/   resources, found at run time by resourceRoot()
 //   grammars/*.wasm + versions.json        tree-sitter grammars without the grammar packages, whose install
 //                                          scripts would try to compile native bindings on the user's machine
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { build } from 'esbuild';
 
 const ROOT = join(import.meta.dirname, '..');
@@ -32,6 +32,36 @@ for (const dir of workspace) {
     if (name.startsWith('@xiezhi/') || isGrammar(name)) continue;
     if (deps[name] && deps[name] !== version) fail(`${name} is pinned to ${deps[name]} and ${version} in different packages`);
     deps[name] = version;
+  }
+}
+
+// The pi packages move in lockstep, but pi-coding-agent asks for its siblings with ^ ranges, so npm would take a newer,
+// incompatible pi-codemode. Every package of a dependency's scope it pulls in is pinned to the version the workspace
+// resolved; npm reuses that top-level copy for the ranges.
+const pkgDir = (from, name) => {
+  for (let d = from; ; d = dirname(d)) {
+    const p = join(d, 'node_modules', name);
+    if (existsSync(join(p, 'package.json'))) return realpathSync(p);
+    if (dirname(d) === d) fail(`cannot resolve ${name} from ${from}`);
+  }
+};
+for (const dir of workspace) {
+  const pkg = readJson(join(ROOT, dir, 'package.json'));
+  for (const name of Object.keys(pkg.dependencies ?? {})) {
+    const scope = name.startsWith('@') ? name.split('/')[0] + '/' : null;
+    if (!scope || name.startsWith('@xiezhi/') || isGrammar(name)) continue;
+    const queue = [pkgDir(join(ROOT, dir), name)];
+    for (let at = queue.shift(); at; at = queue.shift()) {
+      for (const dep of Object.keys(readJson(join(at, 'package.json')).dependencies ?? {})) {
+        if (!dep.startsWith(scope)) continue;
+        const d = pkgDir(at, dep);
+        const version = readJson(join(d, 'package.json')).version;
+        if (deps[dep] === version) continue;
+        if (deps[dep]) fail(`${dep} resolves to ${deps[dep]} and ${version}`);
+        deps[dep] = version;
+        queue.push(d);
+      }
+    }
   }
 }
 

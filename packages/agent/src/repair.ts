@@ -6,8 +6,6 @@
 
 const OPEN = /<\/[A-Za-z_][\w-]*>\s*<parameter name="([A-Za-z_][\w-]*)">/;
 const NEXT = /(?:<\/parameter>)?\s*<parameter name="([A-Za-z_][\w-]*)">/g;
-const TAG = /^\s*<([A-Za-z_][\w-]*)>/;
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function parseValue(text: string): unknown {
   const t = text.replace(/\s*<\/parameter>\s*$/, '').trim();
@@ -15,24 +13,27 @@ function parseValue(text: string): unknown {
 }
 
 /**
- * Bare-tag leak in field `key`: the string closes its own field (`</key>`) and goes on with `<name>value</name>`
- * siblings, the last one possibly unclosed. Only the field's own closing tag starts it, so XML quoted in a
- * field (a MyBatis mapper as evidence) stays text. Null when the string does not leak this way.
+ * The other leaked form (claude-haiku-5-5 in submit_challenge): the field closes with its own tag and the
+ * next fields follow as plain elements — `"affirm": "…</affirm>\n<confirmation>maintain</confirmation>\n<confidenceDelta>-0.2</confidenceDelta>"`.
+ * Split only when the field's own closing tag is followed by nothing but such elements (the last may be unclosed) for
+ * fields the call does not have, so XML or HTML quoted in a finding is left alone.
  */
-function bareTagLeak(key: string, v: string): { head: string; fields: [string, string][] } | null {
-  const close = new RegExp(`</${escape(key)}>\\s*(?=<[A-Za-z_][\\w-]*>)`).exec(v);
-  if (!close) return null;
-  const fields: [string, string][] = [];
-  let rest = v.slice(close.index + close[0].length);
-  for (let m = TAG.exec(rest); m; m = TAG.exec(rest)) {
-    const name = m[1]!;
-    rest = rest.slice(m[0].length);
-    const end = rest.indexOf(`</${name}>`);
-    fields.push([name, end < 0 ? rest : rest.slice(0, end)]);
-    if (end < 0) break;
-    rest = rest.slice(end + name.length + 3);
+function splitElements(key: string, v: string, src: Record<string, unknown>, out: Record<string, unknown>): boolean {
+  const close = `</${key}>`;
+  const at = v.indexOf(close);
+  if (at < 0) return false;
+  const tail = v.slice(at + close.length);
+  const element = /\s*<([A-Za-z_][\w-]*)>([\s\S]*?)(?:<\/\1>|$)/y;
+  const found: [string, unknown][] = [];
+  let pos = 0;
+  for (let e = element.exec(tail); e && e[0].length; e = element.exec(tail)) {
+    found.push([e[1]!, parseValue(e[2]!)]);
+    pos = element.lastIndex;
   }
-  return fields.length ? { head: v.slice(0, close.index).trimEnd(), fields } : null;
+  if (!found.length || tail.slice(pos).trim() || found.some(([n]) => n in src || n === key)) return false;
+  out[key] = v.slice(0, at).trimEnd();
+  for (const [n, value] of found) if (!(n in out)) out[n] = value;
+  return true;
 }
 
 /** Splits leaked parameters out of string fields (at any depth); returns the input itself when nothing leaked. */
@@ -66,11 +67,8 @@ function repairOnce(value: unknown): unknown {
     }
     const m = OPEN.exec(v);
     if (!m) {
-      const bare = bareTagLeak(k, v);
-      if (!bare) { out[k] = v; continue; }
-      out[k] = bare.head;
-      for (const [name, text] of bare.fields) if (!(name in src) && !(name in out)) out[name] = parseValue(text);
-      changed = true;
+      if (splitElements(k, v, src, out)) changed = true;
+      else out[k] = v;
       continue;
     }
     out[k] = v.slice(0, m.index).trimEnd();

@@ -227,7 +227,7 @@ function Repos({ pid, addOpen, setAddOpen }: { pid: string; addOpen: boolean; se
       </div>
       <AnalysisBar pid={pid} hasRepos={(repos.data?.length ?? 0) > 0} />
       {repos.isLoading ? <Loading /> : repos.error ? <ErrorState error={repos.error} /> : repos.data!.length === 0 ? (
-        <div className={ui.card}><EmptyState icon="git" title="还没有仓库" action={<Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>添加仓库</Button>}>添加仓库（Java、Go、Python、JavaScript/TypeScript、PHP、Kotlin、C#）：本地目录、Git 地址或压缩包。</EmptyState></div>
+        <div className={ui.card}><EmptyState icon="git" title="还没有仓库" action={<Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>添加仓库</Button>}>添加仓库（Java、Go、Python、JavaScript/TypeScript、PHP、Kotlin、C#、Ruby、Rust）：本地目录、Git 地址或压缩包。</EmptyState></div>
       ) : (
         <div className={ui.card} style={{ overflow: 'auto' }}>
           <table className={ui.table}>

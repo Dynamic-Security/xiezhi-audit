@@ -12,7 +12,7 @@ import {
 } from '@xiezhi/context';
 import { P, PromptSet, sessionKnowledge, type FrozenKnowledge, type KnowledgeNeed, type Phase, type TaskFacts } from '@xiezhi/knowledge';
 import {
-  buildAuditTools, systemPromptSections, detectInjection, findTranscript, modelCallContext, newNonce, PriorityGate, readTranscriptMeta, startSession, unverifiedKnowledgeNote, withEgressScope, wrapUntrusted, type AuditTool, type EgressScope, type InjectionSignal, type BudgetVerdict, type ConnectorAccess, type ModelHub, type SessionEvent,
+  buildAuditTools, DEFAULT_CONTEXT_WINDOW, systemPromptSections, detectInjection, findTranscript, modelCallContext, newNonce, PriorityGate, readTranscriptMeta, startSession, unverifiedKnowledgeNote, withEgressScope, wrapUntrusted, type AuditTool, type EgressScope, type InjectionSignal, type BudgetVerdict, type ConnectorAccess, type ModelHub, type SessionEvent,
   type SessionOutcome, type UsageDelta,
 } from '@xiezhi/agent';
 import { fromJson, type Store } from '@xiezhi/store';
@@ -98,6 +98,11 @@ export interface SessionArgs {
    * responsibility cards. A per-repository understanding session of a multi-repository audit (its sub-agents inherit it).
    */
   ownRepoOnly?: boolean;
+  /**
+   * The prompt sends the model to service_card (the cross-repository system session): the tool is there even
+   * when the project counts as a monolith (no gateway). Own-repository sessions get it the same way.
+   */
+  serviceCards?: boolean;
 }
 
 interface SessionScope { id: string; role: 'main' | 'task'; parent?: string }
@@ -479,11 +484,13 @@ export class AuditRuntime {
       const t0 = Date.now();
       const waitSignal = args.task ? AbortSignal.any([args.signal, AbortSignal.timeout(args.task.waitMs)]) : args.signal;
       let slot: { release: () => void; waited: boolean };
+      // A sub-agent that gives up waiting never emits task.started; its goal rides on the wait events.
+      const goal = args.task ? { goal: args.task.goal.slice(0, 500) } : {};
       try {
-        slot = args.noSlot ? { release: () => {}, waited: false } : await this.slots.acquire({ high: !!args.task, signal: waitSignal, onQueued: () => this.event('session.queued', { wait: 'slot' }, args.stepId) });
+        slot = args.noSlot ? { release: () => {}, waited: false } : await this.slots.acquire({ high: !!args.task, signal: waitSignal, onQueued: () => this.event('session.queued', { wait: 'slot', ...goal }, args.stepId) });
       } catch (e) {
         if (args.signal.aborted || !args.task) throw e;
-        this.event('session.dequeued', { wait: 'slot', ms: Date.now() - t0, gaveUp: true }, args.stepId);
+        this.event('session.dequeued', { wait: 'slot', ms: Date.now() - t0, gaveUp: true, ...goal }, args.stepId);
         throw new Error(P('feedback.task.no_slot', { seconds: Math.round(args.task.waitMs / 1000), sessions: this.strategy.concurrency.sessions }), { cause: e });
       }
       if (slot.waited) this.event('session.dequeued', { wait: 'slot', ms: Date.now() - t0 }, args.stepId);
@@ -552,12 +559,35 @@ export class AuditRuntime {
     const repo = args.repo && this.views.has(args.repo) ? args.repo : this.targetRepo.name;
     const only = !!args.ownRepoOnly && this.repos.length > 1;
     // An own-repository session gets the peers' responsibility cards instead of their code.
-    const serviceAccess = args.submitOnly || (!SERVICE_CARD_KINDS.has(args.kind) && !only) ? null : this.serviceAccess(args.stepId, nonce, args.model, repo);
+    const cards = only || (!!args.serviceCards && this.repos.length > 1);
+    const serviceAccess = args.submitOnly || (!SERVICE_CARD_KINDS.has(args.kind) && !cards) ? null : this.serviceAccess(args.stepId, nonce, args.model, repo, cards);
     const otherRepo = (r: string | undefined) => {
       if (only && r && r !== repo) throw new Error(P('feedback.own_repo_only', { repo }));
     };
     const indexes = only ? new Map([...this.indexes].filter(([k]) => k === repo)) : this.indexes;
-    const tools = args.submitOnly ? [...args.submitTools] : [
+    // In a multi-repository audit a code reference without a repository is in the session's
+    // repository when the file is there, else in the one repository that has that path — not the audit's first target
+    // (findings of php-invoice sessions were refused as missing from cs-depot).
+    const sessionRepo = args.repo && this.views.has(args.repo) ? args.repo : undefined;
+    const has = (r: string, path: string) => { try { this.views.get(r)!.guard(path); return true; } catch { return false; } };
+    const refRepo = (path: string) => {
+      if (sessionRepo && has(sessionRepo, path)) return sessionRepo;
+      const hits = this.repos.filter((r) => this.views.has(r.name) && has(r.name, path));
+      return hits.length === 1 ? hits[0]!.name : sessionRepo;
+    };
+    // A cited range running a little past the end of the file (`config/app.php:1-10` for 6 lines) ends at its last line.
+    const lastLine = (repoName: string | undefined, path: string) => {
+      const view = this.views.get(repoName ?? this.targetRepo.name);
+      try { return view?.file(view.guard(path))?.lines; } catch { return undefined; }
+    };
+    const submitTools = args.submitTools.map((t) => ({
+      ...t,
+      normalize: (a: unknown) => {
+        const own = t.normalize ? t.normalize(a) : a;
+        return clampRefEnds(this.repos.length > 1 ? withRefRepo(own, refRepo) : own, lastLine);
+      },
+    }));
+    const tools = args.submitOnly ? [...submitTools] : [
       ...buildAuditTools({
         ctx: this.toolContext(args.signal, args.stepId, { repo, only }), nonce,
         ...(args.withIndex !== false && this.strategy.tools.ast ? { indexes: indexes as IndexMap } : {}),
@@ -593,7 +623,7 @@ export class AuditRuntime {
       ...(args.extraTools ?? []).map(guarded),
       ...(factAccess ? [factAccess.tool] : []),
       ...(serviceAccess?.tool ? [serviceAccess.tool] : []),
-      ...args.submitTools,
+      ...submitTools,
     ].filter((t) => !args.noCodeRead || !CODE_READ_TOOLS.has(t.name));
     const threatModel = args.threatModel !== false && THREAT_MODEL_KINDS.has(args.kind) ? this.threatModel() : null;
     const sceneDetail = [args.sceneDetail, this.repoRoster(only ? repo : undefined)].filter(Boolean).join('\n');
@@ -818,10 +848,15 @@ export class AuditRuntime {
   }
 
   private knowledgeCap(model: ModelRef): number {
+    return Math.floor(this.contextWindow(model)) >> 2;
+  }
+
+  /** The context window `model` is registered with (the default for one the configuration does not know). */
+  contextWindow(model: ModelRef): number {
     try {
-      return Math.floor((this.hub.resolve(model) as { contextWindow?: number }).contextWindow ?? 128_000) >> 2;
+      return (this.hub.resolve(model) as { contextWindow?: number }).contextWindow || DEFAULT_CONTEXT_WINDOW;
     } catch {
-      return 32_000;
+      return DEFAULT_CONTEXT_WINDOW;
     }
   }
 
@@ -854,11 +889,11 @@ export class AuditRuntime {
     return kept;
   }
 
-  /** the target service's responsibility card in the prompt and service_card for peers, when the project has service boundaries. */
-  private serviceAccess(stepId: string, nonce: string, model: ModelRef, repo = this.targetRepo.name): { tool: AuditTool | null; note: string } | null {
+  /** The target service's responsibility card in the prompt and service_card for peers, when the project has service boundaries. */
+  private serviceAccess(stepId: string, nonce: string, model: ModelRef, repo = this.targetRepo.name, always = false): { tool: AuditTool | null; note: string } | null {
     const gateways = projectGateways(this.store, this.audit.project_id, this.views);
     const trust = effectiveTrust(this.store, this.audit.project_id, gateways);
-    if (trust.value === 'monolith') return null;
+    if (trust.value === 'monolith' && !always) return null;
     const confidential = confidentialAllowed(this.store, model);
     const card = responsibilityCard(this.store, this.audit.project_id, repo, this.indexes.get(repo), gateways, { confidential });
     const peers = this.store.all<{ name: string }>('SELECT name FROM repository WHERE project_id = ? AND removed_at IS NULL AND name != ? ORDER BY name', this.audit.project_id, repo).map((r) => r.name);
@@ -988,4 +1023,33 @@ const THREAT_MODEL_KINDS: ReadonlySet<StepKind> = new Set(['hunt', 'challenge', 
 function summarizeArgs(args: unknown): unknown {
   const s = JSON.stringify(args ?? {});
   return s.length <= 2000 ? args : { truncated: true, preview: s.slice(0, 2000) };
+}
+
+/** How far past the last line a cited end may be and still be read as “to the end of the file”. */
+export const REF_END_SLACK = 20;
+
+/**
+ * A copy of `v` where every code reference whose end lies a little past its file's last line (start inside the file,
+ * at most REF_END_SLACK lines over) ends there; a range far beyond the file stays as it is and is refused.
+ */
+export function clampRefEnds(v: unknown, lastLine: (repo: string | undefined, path: string) => number | undefined): unknown {
+  if (Array.isArray(v)) return v.map((x) => clampRefEnds(x, lastLine));
+  if (!v || typeof v !== 'object') return v;
+  const o = Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, clampRefEnds(x, lastLine)]));
+  if (typeof o.path !== 'string' || typeof o.startLine !== 'number' || typeof o.endLine !== 'number') return o;
+  const last = lastLine(typeof o.repo === 'string' && o.repo ? o.repo : undefined, o.path);
+  return last !== undefined && o.startLine >= 1 && o.startLine <= last && o.endLine > last && o.endLine - last <= REF_END_SLACK ? { ...o, endLine: last } : o;
+}
+
+/**
+ * A copy of `v` where every code reference (`{ path, startLine }`) without a repository names one: `repo`, or what it
+ * returns for the reference's path (left without one when it returns nothing).
+ */
+export function withRefRepo(v: unknown, repo: string | ((path: string) => string | undefined)): unknown {
+  if (Array.isArray(v)) return v.map((x) => withRefRepo(x, repo));
+  if (!v || typeof v !== 'object') return v;
+  const o = Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, withRefRepo(x, repo)]));
+  if (typeof o.path !== 'string' || typeof o.startLine !== 'number' || (o.repo !== undefined && o.repo !== '')) return o;
+  const r = typeof repo === 'string' ? repo : repo(o.path);
+  return r ? { ...o, repo: r } : o;
 }

@@ -10,7 +10,7 @@ import type { AuditRuntime } from './runtime.js';
 import { scopePredicate } from './steps/triage.js';
 import { hypothesisAuditIds } from './threat.js';
 
-interface ItemRow { id: string; kind: 'entry' | 'sink'; target_id: string; repository_id: string; path: string; start_line: number; end_line: number; status: string; verdict: string | null }
+interface ItemRow { id: string; kind: 'entry' | 'sink'; target_id: string; repository_id: string; path: string; start_line: number; end_line: number; status: string; verdict: string | null; finding_id?: string | null }
 
 /** `only`: restrict items to these target ids (incremental impact set). */
 export function ensureCoverageItems(rt: AuditRuntime, only?: ReadonlySet<string>): number {
@@ -47,6 +47,9 @@ function readEnough(rt: AuditRuntime, item: ItemRow): boolean {
 export function markConcluded(rt: AuditRuntime, kind: 'entry' | 'sink', targetId: string, stepId: string, verdict: string, findingId?: string): void {
   const item = rt.store.get<ItemRow>('SELECT * FROM coverage_item WHERE audit_id = ? AND kind = ? AND target_id = ?', rt.auditId, kind, targetId);
   if (!item) return;
+  // A unit a finding concluded keeps that conclusion. A later ruled_out (“already submitted as F1”) replaced
+  // it, the recheck then reopened the unit as a wrong exclusion, and the finding no longer covered it.
+  if (item.finding_id && item.verdict === 'finding' && verdict !== 'finding') return;
   if (readEnough(rt, item)) {
     rt.store.update('coverage_item', { id: item.id }, { status: 'concluded', verdict, concluded_by_step: stepId, ...(findingId ? { finding_id: findingId } : {}) });
   } else {

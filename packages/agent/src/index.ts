@@ -3,7 +3,7 @@ export { ModelHub, ModelNotConfiguredError, NO_KEY, piVersion, type ModelMode } 
 export { modelGate, modelCallContext, PriorityGate, type ModelCallContext, type ModelPriority } from './gate.js';
 export { Replayer, Recorder, ReplayMismatchError, requestHash, normalizeRequest, type Fixture, type FixtureHeader, type Exchange } from './replay.js';
 export {
-  runSession, startSession, classifyProviderError, isContentFiltered, MAX_CONTRACT_CORRECTIONS, resumePrompt, wrapUpTurns,
+  runSession, startSession, classifyProviderError, contextTooLarge, MAX_EMPTY_TRUNCATED_REPLIES, isContentFiltered, MAX_CONTRACT_CORRECTIONS, resumePrompt, wrapUpTurns,
   type AuditTool, type SessionSpec, type SessionOutcome, type SessionEvent, type SessionStatus, type UsageDelta, type BudgetVerdict, type ToolRunResult, type SessionHandle, type SessionTelemetry,
 } from './session.js';
 export { buildAuditTools, authoritativeResultNote, connectorResultNote, type ToolHooks, type ToolSetOptions, type ConnectorAccess, type ConnectorOperation } from './tools.js';
@@ -13,3 +13,4 @@ export { pingModel } from './ping.js';
 export { withEgressScope, currentEgressScope, EgressCollector, type EgressScope, type EgressRecord } from './egress.js';
 export { decodedJsonFields, repairLeakedParameters, withEmptyRequiredLists } from './repair.js';
 export { prepareToolArguments } from './session.js';
+export { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS, MIN_OUTPUT_TOKENS, listModels, modelLimitsOf, modelListingOf, outputRoom, withProbedLimits, type ModelLimits, type ModelListing } from './limits.js';

@@ -27,6 +27,11 @@
 .pickerOn { background: var(--accent-soft); }
 .pickerId { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; flex: 1; }
 .pickerErr { padding: 0 6px 4px 30px; font-size: var(--fs-xs); color: var(--danger); word-break: break-all; }
+.limits { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 0 6px 6px 30px; font-size: var(--fs-xs); color: var(--text-2); }
+.limitField { display: inline-flex; align-items: center; gap: 6px; }
+.limitField input { width: 96px; height: 26px; font-size: 12px; }
+.limitBad { border-color: var(--danger); }
+.limitHint { color: var(--text-3); }
 .pickerEmpty { padding: 14px 10px; font-size: var(--fs-xs); color: var(--text-3); }
 .pickerManual { display: flex; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--border); }
 .pickerManual input { height: 30px; font-size: 12px; }
