@@ -12,7 +12,7 @@ import {
 } from '@xiezhi/context';
 import { P, PromptSet, sessionKnowledge, type FrozenKnowledge, type KnowledgeNeed, type Phase, type TaskFacts } from '@xiezhi/knowledge';
 import {
-  buildAuditTools, systemPromptSections, detectInjection, findTranscript, modelCallContext, newNonce, PriorityGate, readTranscriptMeta, startSession, unverifiedKnowledgeNote, withEgressScope, wrapUntrusted, type AuditTool, type EgressScope, type InjectionSignal, type BudgetVerdict, type ConnectorAccess, type ModelHub, type SessionEvent,
+  buildAuditTools, DEFAULT_CONTEXT_WINDOW, systemPromptSections, detectInjection, findTranscript, modelCallContext, newNonce, PriorityGate, readTranscriptMeta, startSession, unverifiedKnowledgeNote, withEgressScope, wrapUntrusted, type AuditTool, type EgressScope, type InjectionSignal, type BudgetVerdict, type ConnectorAccess, type ModelHub, type SessionEvent,
   type SessionOutcome, type UsageDelta,
 } from '@xiezhi/agent';
 import { fromJson, type Store } from '@xiezhi/store';
@@ -818,10 +818,15 @@ export class AuditRuntime {
   }
 
   private knowledgeCap(model: ModelRef): number {
+    return Math.floor(this.contextWindow(model)) >> 2;
+  }
+
+  /** The context window `model` is registered with (the default for one the configuration does not know). */
+  contextWindow(model: ModelRef): number {
     try {
-      return Math.floor((this.hub.resolve(model) as { contextWindow?: number }).contextWindow ?? 128_000) >> 2;
+      return (this.hub.resolve(model) as { contextWindow?: number }).contextWindow || DEFAULT_CONTEXT_WINDOW;
     } catch {
-      return 32_000;
+      return DEFAULT_CONTEXT_WINDOW;
     }
   }
 

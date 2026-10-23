@@ -8,6 +8,7 @@ import { createAssistantMessageEventStream, createProvider, fauxProvider, type A
 import type { AppConfig, ModelRef } from '@xiezhi/contracts';
 import { Recorder, Replayer } from './replay.js';
 import { modelCallContext, modelGate } from './gate.js';
+import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS } from './limits.js';
 
 export type ModelMode = { kind: 'live' } | { kind: 'replay'; replayer: Replayer } | { kind: 'record'; recorder: Recorder };
 
@@ -47,7 +48,7 @@ export class ModelHub {
       const models = p.models.map((m) => ({
         id: m.id, name: m.name ?? m.id, reasoning: m.reasoning ?? false, input: ['text' as const],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: m.contextWindow ?? 128_000, maxTokens: m.maxTokens ?? 8_192,
+        contextWindow: m.contextWindow ?? DEFAULT_CONTEXT_WINDOW, maxTokens: m.maxTokens ?? DEFAULT_MAX_TOKENS,
       }));
       if (this.mode.kind === 'replay') {
         const replayer = this.mode.replayer;

@@ -53,8 +53,9 @@ export const ERROR_CLASSES = [
   'PROVIDER_QUOTA',
 ] as const;
 export type ErrorClass = (typeof ERROR_CLASSES)[number];
+// CONTEXT_OVERFLOW is not retried: the same prompt overflows the same window again (hunt batches are split instead).
 export const RETRYABLE_ERROR_CLASSES: readonly ErrorClass[] = [
-  'PROVIDER_TRANSIENT', 'RATE_LIMITED', 'STEP_TIMEOUT', 'CONTEXT_OVERFLOW', 'OUTPUT_CONTRACT', 'TOOL_FAILURE', 'INTERNAL',
+  'PROVIDER_TRANSIENT', 'RATE_LIMITED', 'STEP_TIMEOUT', 'OUTPUT_CONTRACT', 'TOOL_FAILURE', 'INTERNAL',
 ];
 
 // array order IS the display priority (authoritative over any other

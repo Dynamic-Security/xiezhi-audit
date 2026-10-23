@@ -9,7 +9,7 @@ import {
 } from '@xiezhi/contracts';
 import { readLock } from '@xiezhi/store';
 import { modelDefaults, runDoctor, queries as Q } from '@xiezhi/engine';
-import { pingModel, piVersion } from '@xiezhi/agent';
+import { listModels, pingModel, piVersion } from '@xiezhi/agent';
 import * as B from '../bodies.js';
 import { SERVER_VERSION, type AppContext } from '../context.js';
 import { parseBody } from '../http.js';
@@ -32,27 +32,6 @@ function validBaseUrl(u: string): string {
   if (url.username || url.password) throw new AppError('COMMON_VALIDATION', 'baseUrl must not contain credentials');
   if (url.search) throw new AppError('COMMON_VALIDATION', 'baseUrl must not contain a query string');
   return u.replace(/\/+$/, '');
-}
-
-/** Connectivity test: list models with the stored key; never follows redirects. */
-async function testProvider(p: AppConfig['modelProviders'][number]): Promise<{ ok: boolean; detail: string; models?: string[] }> {
-  const headers: Record<string, string> = { accept: 'application/json', ...(p.headers ?? {}) };
-  let url = `${p.baseUrl}/models`;
-  if (p.api === 'anthropic-messages') {
-    url = `${p.baseUrl.replace(/\/v1$/, '')}/v1/models`;
-    if (p.apiKey) headers['x-api-key'] = p.apiKey;
-    headers['anthropic-version'] = '2023-06-01';
-  } else if (p.apiKey) headers.authorization = `Bearer ${p.apiKey}`;
-  try {
-    const res = await fetch(url, { headers, redirect: 'manual', signal: AbortSignal.timeout(15_000) });
-    if (res.status >= 300 && res.status < 400) return { ok: false, detail: `HTTP ${res.status}：服务返回重定向，已拒绝跟随` };
-    if (!res.ok) return { ok: false, detail: `HTTP ${res.status}` };
-    const body = await res.json().catch(() => null) as { data?: { id?: string }[] } | null;
-    const ids = (body?.data ?? []).map((m) => String(m.id ?? '')).filter(Boolean);
-    return { ok: true, detail: ids.length ? `可连通，服务端列出 ${ids.length} 个模型` : '可连通', models: ids.slice(0, 500) };
-  } catch (e) {
-    return { ok: false, detail: `无法连接：${(e as Error).name === 'TimeoutError' ? '超时' : (e as Error).message}` };
-  }
 }
 
 /** Checked per request at most: the rest of the selection is left for another check. */
@@ -161,13 +140,13 @@ export function registerCoreRoutes(app: FastifyInstance, ctx: AppContext): void 
   const clean = (s: string) => redact(s, store.redactOptions());
   app.post('/api/v1/settings/model-providers/probe', async (req) => {
     const p = formProvider(parseBody(B.ProviderProbeBody, req.body));
-    const r = await testProvider(p);
-    return { ok: r.ok, detail: clean(r.detail), models: r.models ?? [] };
+    const r = await listModels(p);
+    return { ok: r.ok, detail: clean(r.detail), models: r.models ?? [], limits: r.limits ?? {} };
   });
   app.post('/api/v1/settings/model-providers/check', async (req) => {
     const b = parseBody(B.ProviderCheckBody, req.body);
     const p = formProvider(b);
-    const list = await testProvider(p);
+    const list = await listModels(p);
     const ids = [...new Set(b.models.map((m) => m.trim()).filter(Boolean))];
     const tried = ids.slice(0, CHECK_MAX_MODELS);
     const results: { id: string; ok: boolean; ms: number; detail: string }[] = new Array(tried.length);
@@ -190,7 +169,7 @@ export function registerCoreRoutes(app: FastifyInstance, ctx: AppContext): void 
     const p = store.config.modelProviders.find((x) => x.id === req.params.id);
     if (!p) throw new AppError('PROVIDER_NOT_FOUND', req.params.id);
     if (p.apiKey && p.apiKeyOrigin && p.apiKeyOrigin !== originOf(p.baseUrl)) throw new AppError('CREDENTIAL_BINDING_MISMATCH');
-    const r = await testProvider(p);
+    const r = await listModels(p);
     const detail = redact(r.detail, store.redactOptions());
     const rec = { ok: r.ok, at: new Date().toISOString(), detail };
     ctx.providerTests.set(p.id, rec);

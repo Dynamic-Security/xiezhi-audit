@@ -546,8 +546,11 @@ export const ProviderDto = O({
 export type ProviderDto = Static<typeof ProviderDto>;
 export const ProviderPatched = O({ ...ProviderDto.properties, keyCleared: Bool });
 export const ProviderTestResult = O({ ok: Bool, at: Iso, detail: Str, models: Type.Array(Str) });
-/** Model list of an unsaved provider form. */
-export const ProviderProbeResult = O({ ok: Bool, detail: Str, models: Type.Array(Str) });
+/** Model list of an unsaved provider form; `limits`: the models whose listing entry reported a context window or output cap. */
+export const ProviderProbeResult = O({
+  ok: Bool, detail: Str, models: Type.Array(Str),
+  limits: Type.Optional(Type.Record(Str, O({ contextWindow: Type.Optional(Int), maxTokens: Type.Optional(Int) }))),
+});
 export type ProviderProbeResult = Static<typeof ProviderProbeResult>;
 /** Connectivity of an unsaved form: the model list, then one minimal request per selected model. */
 export const ProviderCheckResult = O({
