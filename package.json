@@ -11,6 +11,7 @@
     "build": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" run build",
     "typecheck": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" run typecheck",
     "lint": "eslint . && node scripts/skills-history.mjs --check",
+    "test": "vitest run",
     "cli": "node apps/cli/dist/main.js",
     "eval": "node apps/cli/dist/main.js eval",
     "release:pack": "pnpm build && node scripts/build-release.mjs && cd release/xiezhi-audit && npm pack --pack-destination .."
@@ -21,6 +22,9 @@
     "esbuild": "0.28.2",
     "eslint": "10.11.0",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.70.1"
+    "typescript-eslint": "8.70.1",
+    "vitest": "5.0.2",
+    "ajv": "8.20.0",
+    "ajv-draft-04": "1.0.0"
   }
 }
