@@ -11,6 +11,7 @@
     "build": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" run build",
     "typecheck": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" run typecheck",
     "lint": "eslint . && node scripts/skills-history.mjs --check",
+    "test": "node --test --test-timeout=60000 \"packages/*/test/*.test.mjs\"",
     "cli": "node apps/cli/dist/main.js",
     "eval": "node apps/cli/dist/main.js eval",
     "release:pack": "pnpm build && node scripts/build-release.mjs && cd release/xiezhi-audit && npm pack --pack-destination .."

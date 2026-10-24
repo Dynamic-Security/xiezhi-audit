@@ -12,7 +12,7 @@ import {
 } from '@xiezhi/engine';
 import { exportAudit, type ExportFormat } from '@xiezhi/report';
 import { caseIndexBody, installBuiltinSkills, listKnowledge, readSkill, scanLayer } from '@xiezhi/knowledge';
-import { Recorder, Replayer, piVersion, promptTemplateHash, type ModelMode } from '@xiezhi/agent';
+import { Recorder, Replayer, listModels, piVersion, promptTemplateHash, withProbedLimits, type ModelMode } from '@xiezhi/agent';
 import { collectSecrets, toolSchemaHash } from '@xiezhi/contracts';
 import { startServer, DEFAULT_PORT, draftDto } from '@xiezhi/server';
 import { knowledgeWriteCommand } from './knowledge.js';
@@ -34,7 +34,11 @@ const HELP = `xiezhi — 代码安全审计
   version                                           显示版本
   config list | get <key> | set <key> <value>       配置（defaultModel / fallbackModel 用 provider/model；
                                                     stageModels.<阶段> 用 provider/model、default 或 none）
-  config add-provider <id> --api <api> --base-url <url> --models a,b
+  config add-provider <id> --api <api> --base-url <url> --models a,b [--context-window N] [--max-tokens N]
+                                                    读取服务端模型列表中的上下文窗口 / 最大输出（若有）；
+                                                    --context-window / --max-tokens 对所列模型统一设置（支持 200k 写法）
+  config set-model-limits <providerId> <modelId> [--context-window N] [--max-tokens N]
+                                                    设置单个模型的上下文窗口 / 最大输出；未设置时按 128k / 8192 处理
   config set-secret <providerId> [--from-env VAR]   设置模型服务密钥（TTY 隐藏输入或 stdin）
   config set-git-credential <host> --username <u> [--from-env VAR]
                                                     设置某域名的 Git HTTPS token（TTY 隐藏输入或 stdin）
@@ -412,8 +416,34 @@ function modelRef(v: string) {
   return { provider, model: rest.join('/') };
 }
 
+/** A token count from the command line: digits, optionally with k / m (`200k`). */
+function tokenArg(v: string | undefined, flag: string, min: number): number | undefined {
+  if (v === undefined) return undefined;
+  const m = /^\s*(\d+(?:\.\d+)?)\s*([km]?)\s*$/i.exec(v);
+  const n = m ? Math.round(Number(m[1]) * (m[2]!.toLowerCase() === 'k' ? 1000 : m[2]!.toLowerCase() === 'm' ? 1_000_000 : 1)) : NaN;
+  if (!Number.isInteger(n) || n < min) throw new CliExit(EXIT_ERROR, `${flag} 须为不小于 ${min} 的整数（可写作 200k）`);
+  return n;
+}
+
+type ProviderCfg = AppConfig['modelProviders'][number];
+
+/**
+ * Fill the context window / output cap of a provider's models from its model listing where the configuration has none.
+ * Best effort: a service that lists no limits (or cannot be reached yet, e.g. before its key is set) changes nothing.
+ */
+async function probeModelLimits(p: ProviderCfg): Promise<{ provider: ProviderCfg; note: string }> {
+  const r = await listModels(p);
+  if (!r.ok) return { provider: p, note: `未能读取模型上限（${r.detail}）${p.apiKey ? '' : '；设置密钥（config set-secret）后会再读取'}` };
+  const { models, updated } = withProbedLimits(p.models, r.limits ?? {});
+  if (!updated.length) return { provider: p, note: Object.keys(r.limits ?? {}).length ? '' : '服务端模型列表未提供上下文窗口 / 最大输出' };
+  const shown = models.filter((m) => updated.includes(m.id)).map((m) => `${m.id}（上下文 ${m.contextWindow ?? '—'}，输出 ${m.maxTokens ?? '—'}）`);
+  return { provider: { ...p, models }, note: `已读取模型上限：${shown.join('；')}` };
+}
+
+const UNSET_LIMITS_HINT = '未设置上限的模型按 128k 上下文、8192 输出处理；可用 config set-model-limits 设置';
+
 async function cmdConfig(sub: string | undefined, args: string[], dataDir?: string): Promise<number> {
-  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { api: { type: 'string' }, 'base-url': { type: 'string' }, models: { type: 'string' }, 'from-env': { type: 'string' }, username: { type: 'string' } } });
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { api: { type: 'string' }, 'base-url': { type: 'string' }, models: { type: 'string' }, 'from-env': { type: 'string' }, username: { type: 'string' }, 'context-window': { type: 'string' }, 'max-tokens': { type: 'string' } } });
   const store = openStore(dataDir);
   try {
     const cfg = store.config;
@@ -438,13 +468,35 @@ async function cmdConfig(sub: string | undefined, args: string[], dataDir?: stri
       const baseUrl = need(values['base-url'], '--base-url');
       const u = new URL(baseUrl);
       if (u.username || u.password) throw new AppError('SECRET_ON_COMMAND_LINE', 'baseUrl must not contain credentials');
-      const models = need(values.models, '--models').split(',').map((m) => m.trim()).filter(Boolean).map((m) => ({ id: m }));
+      const contextWindow = tokenArg(values['context-window'], '--context-window', 1024);
+      const maxTokens = tokenArg(values['max-tokens'], '--max-tokens', 256);
       const existing = cfg.modelProviders.find((p) => p.id === id);
+      // a model listed again keeps what is known about it (limits set earlier); flags given here win.
+      const known = new Map((existing?.models ?? []).map((m) => [m.id, m]));
+      const models = need(values.models, '--models').split(',').map((m) => m.trim()).filter(Boolean)
+        .map((m) => ({ ...(known.get(m) ?? { id: m }), ...(contextWindow ? { contextWindow } : {}), ...(maxTokens ? { maxTokens } : {}) }));
       // Changing baseUrl starts a new credential binding: the old key is cleared.
       const keepKey = existing && existing.baseUrl === baseUrl ? { ...(existing.apiKey ? { apiKey: existing.apiKey, apiKeyOrigin: existing.apiKeyOrigin } : {}) } : {};
-      const next = { id, api, baseUrl, models, ...keepKey };
-      store.saveConfig({ ...cfg, modelProviders: [...cfg.modelProviders.filter((p) => p.id !== id), next as AppConfig['modelProviders'][number]] });
+      const probed = await probeModelLimits({ id, api, baseUrl, models, ...keepKey } as ProviderCfg);
+      store.saveConfig({ ...cfg, modelProviders: [...cfg.modelProviders.filter((p) => p.id !== id), probed.provider] });
       print(`已保存模型服务 ${id}${existing && !keepKey.apiKey && existing.apiKey ? '（baseUrl 已变更，原密钥已清除，请重新设置）' : ''}`);
+      if (probed.note) print(probed.note);
+      if (probed.provider.models.some((m) => !m.contextWindow)) print(UNSET_LIMITS_HINT);
+      return EXIT_OK;
+    }
+    if (sub === 'set-model-limits') {
+      const id = need(positionals[0], 'providerId');
+      const modelId = need(positionals[1], 'modelId');
+      const contextWindow = tokenArg(values['context-window'], '--context-window', 1024);
+      const maxTokens = tokenArg(values['max-tokens'], '--max-tokens', 256);
+      if (!contextWindow && !maxTokens) throw new CliExit(EXIT_ERROR, '缺少参数：--context-window 或 --max-tokens');
+      const p = cfg.modelProviders.find((x) => x.id === id);
+      if (!p) throw new CliExit(EXIT_ERROR, `模型服务 ${id} 不存在；先执行 config add-provider`);
+      if (!p.models.some((m) => m.id === modelId)) throw new CliExit(EXIT_ERROR, `模型服务 ${id} 没有模型 ${modelId}`);
+      const models = p.models.map((m) => (m.id === modelId ? { ...m, ...(contextWindow ? { contextWindow } : {}), ...(maxTokens ? { maxTokens } : {}) } : m));
+      store.saveConfig({ ...cfg, modelProviders: cfg.modelProviders.map((x) => (x.id === id ? { ...x, models } : x)) });
+      const m = models.find((x) => x.id === modelId)!;
+      print(`已保存 ${id}/${modelId}：上下文 ${m.contextWindow ?? '未设置'}，最大输出 ${m.maxTokens ?? '未设置'}`);
       return EXIT_OK;
     }
     if (sub === 'set-secret') {
@@ -453,8 +505,11 @@ async function cmdConfig(sub: string | undefined, args: string[], dataDir?: stri
       if (!p) throw new CliExit(EXIT_ERROR, `模型服务 ${id} 不存在；先执行 config add-provider`);
       const secret = values['from-env'] ? process.env[values['from-env']] ?? '' : await readSecret(`输入 ${id} 的密钥（不回显）：`);
       if (!secret) throw new CliExit(EXIT_ERROR, '密钥为空');
-      store.saveConfig({ ...cfg, modelProviders: cfg.modelProviders.map((x) => (x.id === id ? { ...x, apiKey: secret, apiKeyOrigin: originOf(x.baseUrl) } : x)) });
+      // with the key in place the model listing can usually be read: fill the limits add-provider could not.
+      const probed = await probeModelLimits({ ...p, apiKey: secret, apiKeyOrigin: originOf(p.baseUrl) });
+      store.saveConfig({ ...cfg, modelProviders: cfg.modelProviders.map((x) => (x.id === id ? probed.provider : x)) });
       print(`已保存（${maskSecret(secret).hint ?? '已配置'}）`);
+      if (probed.note) print(probed.note);
       return EXIT_OK;
     }
     if (sub === 'set-git-credential') {

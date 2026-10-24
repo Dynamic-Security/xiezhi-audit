@@ -11,6 +11,7 @@ import { openTranscript, restoredState, type ResumeInfo, type TranscriptSpec } f
 import { P } from '@xiezhi/knowledge';
 import { EgressCollector, currentEgressScope } from './egress.js';
 import { decodedJsonFields, repairLeakedParameters, withEmptyRequiredLists } from './repair.js';
+import { MIN_OUTPUT_TOKENS, outputRoom } from './limits.js';
 
 export interface ToolRunResult { text: string; details?: unknown; summary?: Record<string, unknown> }
 
@@ -136,6 +137,21 @@ export function wrapUpTurns(maxTurns: number): number {
   return maxTurns < 5 ? 0 : Math.max(2, Math.ceil(maxTurns * 0.15));
 }
 
+/**
+ * Replies in a row cut at the output limit with next to no output before the session ends as CONTEXT_OVERFLOW: the
+ * backstop of the request check for a context the estimate misses (a provider that clamps on its own).
+ */
+export const MAX_EMPTY_TRUNCATED_REPLIES = 3;
+const EMPTY_REPLY_TOKENS = 16;
+
+/** Why a request with `room` output tokens left is not sent, or null when it has enough. */
+export function contextTooLarge(model: { contextWindow: number; maxTokens: number }, room: number): string | null {
+  const floor = Math.min(MIN_OUTPUT_TOKENS, model.maxTokens);
+  if (room >= floor) return null;
+  return `context too large: the conversation leaves ${Math.max(0, room)} output tokens of the model's ${model.contextWindow}-token context window (at least ${floor} needed); `
+    + 'set the model\'s real context window in its provider settings or use a model with a larger one';
+}
+
 export interface SessionHandle { steer(text: string): Promise<void>; outcome: Promise<SessionOutcome> }
 
 function zeroUsage(): UsageDelta {
@@ -245,6 +261,8 @@ export function startSession(spec: SessionSpec): SessionHandle {
     let nudges = 0;
     let completionNudges = 0;
     let wrapUpSent = false;
+    let emptyTruncated = 0;
+    const model = spec.hub.resolve(spec.model);
     let contractShortfall: string | undefined;
     const telemetry: SessionTelemetry = { peakContext: 0, compactions: 0, referenced: [] };
     const tracked = new Set(spec.trackIds ?? []);
@@ -339,8 +357,16 @@ export function startSession(spec: SessionSpec): SessionHandle {
         });
         // pi awaits `context` handlers before each LLM call; a thrown error would be swallowed, so a stop is signalled
         // by aborting the session (not awaited: the abort waits for the loop, which waits for this handler).
-        pi.on('context', async () => {
-          if (!spec.beforeRequest || status) return undefined;
+        pi.on('context', async (e) => {
+          if (status) return undefined;
+          // pi-ai clamps max_tokens to what the window leaves, down to 1: a request that cannot carry a tool call
+          // only repeats until the turn limit, each one billing the whole context (compaction, if any, has run already).
+          const tooLarge = contextTooLarge(model, outputRoom(model, e.messages));
+          if (tooLarge) {
+            void stop('error', 'CONTEXT_OVERFLOW', tooLarge);
+            return undefined;
+          }
+          if (!spec.beforeRequest) return undefined;
           const r = await spec.beforeRequest();
           if (r === 'pause') void stop('aborted', 'CANCELLED', 'paused by the user');
           else if (r === 'budget') void stop('budget_stopped', 'BUDGET_EXHAUSTED', 'stage quota used up');
@@ -395,7 +421,7 @@ export function startSession(spec: SessionSpec): SessionHandle {
       retry: { enabled: true, maxRetries: 2 },
     } as never);
     const created = await createAgentSession({
-      cwd: spec.cwd, agentDir: spec.agentDir, model: spec.hub.resolve(spec.model), thinkingLevel: (spec.model.thinking ?? 'off') as never,
+      cwd: spec.cwd, agentDir: spec.agentDir, model, thinkingLevel: (spec.model.thinking ?? 'off') as never,
       modelRuntime: spec.hub.runtime, resourceLoader: loader, tools: [...allowed], customTools: toolDefs,
       sessionManager, settingsManager,
     });
@@ -483,6 +509,10 @@ export function startSession(spec: SessionSpec): SessionHandle {
       // A reply cut at the output limit drops its tool calls; pi only says “re-issue”, and models re-send the same
       // oversized call (seen with claude-haiku-5-5 at the default 8192 output tokens).
       if (msg.stopReason === 'length') void session?.steer(P('nudge.session.output_truncated')).catch(() => undefined);
+      emptyTruncated = msg.stopReason === 'length' && delta.output <= EMPTY_REPLY_TOKENS ? emptyTruncated + 1 : 0;
+      if (emptyTruncated >= MAX_EMPTY_TRUNCATED_REPLIES) {
+        void stop('error', 'CONTEXT_OVERFLOW', `context too large: ${emptyTruncated} replies in a row were cut at the output limit with ${delta.output} output tokens (context ${delta.input + delta.cacheRead + delta.cacheWrite} tokens)`);
+      }
       const verdict = spec.onUsage?.(delta) ?? 'continue';
       if (verdict === 'abort') void stop('budget_stopped', 'BUDGET_EXHAUSTED');
       else if (verdict === 'wrap_up' && !wrapUpSent) {
