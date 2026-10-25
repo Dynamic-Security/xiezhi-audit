@@ -75,8 +75,14 @@ export async function prepare(p: PipelineRun): Promise<Stop | null> {
   if ((threatHypothesesOn(s) || domainHuntOn(rt)) && ['full', 'incremental'].includes(rt.audit.scene) && !backfillScope(rt) && !supplement?.hypothesisIds?.length) {
     const threatModels = crossModels(s, 'threat') ?? [hypothesisModel(rt)];
     const crossThreat = threatModels.length > 1;
+    // An incremental target without changes has no threat model, so nothing unchanged gets hypotheses to
+    // verify (a no-change increment ran a threat model and a HYP-B1 batch). One audited in full (no baseline) has one.
+    const changed = (repo: { name: string }) => {
+      const i = rt.audit.scene === 'incremental' ? rt.impact(repo.name) : null;
+      return !i || i.mode === 'full_scan' || Object.values(i.changedFiles).some((l) => l.length > 0);
+    };
     // One threat model per repository × model, side by side.
-    const jobs = rt.targets.flatMap((repo) => threatModels.map((m, j) => ({ repo, m, j, row: ensureStep(store, auditId, {
+    const jobs = rt.targets.filter(changed).flatMap((repo) => threatModels.map((m, j) => ({ repo, m, j, row: ensureStep(store, auditId, {
       kind: 'threat-model', identity: threatIdentity(rt, repo, m, crossThreat ? crossKey(threatModels, j) : undefined), input: { repo: repo.name }, lineage: `THREAT${crossThreat ? `-M${j + 1}` : ''}-${repo.name}`, model: m, estimateTokens: estimateStep('threat-model'), maxAttempts: 2,
     }) })));
     const blockedT: StepRow[] = [];
