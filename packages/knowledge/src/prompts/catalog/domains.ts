@@ -330,6 +330,16 @@ export const DOMAINS: PromptDef[] = [
     text: '## 账本中与本类别相关的结论（证据索引，数据）',
   },
   {
+    id: 'checklist.locate_heading', group: 'step_task', title: '清单核对：搜索命中（标题）',
+    description: '条目带 locate 时，按其搜索式在目标仓库中的命中位置之前的标题；{{n}} 为列出的命中数。',
+    text: '搜索命中（这个条目适用的位置，{{n}} 处）：',
+  },
+  {
+    id: 'checklist.locate_none', group: 'step_task', title: '清单核对：没有搜索命中',
+    description: '条目带 locate 但没有命中时的说明。',
+    text: '按条目的搜索式没有命中：用 grep / 结构索引确认系统是否有这个机制，再下结论。',
+  },
+  {
     id: 'checklist.no_evidence', group: 'step_task', title: '清单核对：没有证据',
     description: '账本中没有本类别的结论或发现时的说明。',
     text: '（账本中没有本类别的结论或发现）',
@@ -339,9 +349,10 @@ export const DOMAINS: PromptDef[] = [
     description: '三种结论（covered / not_applicable / uncovered）的要求与提交；{{n}} 为本批条目数。',
     text: [
       '## 怎么做',
-      '- covered（已覆盖）：代码中有对应的防护或检查，或已有发现覆盖了这个问题；evidence 写出你用 read 读过的代码位置（证据索引中的位置也要读过才能引用）。',
-      '- not_applicable（不适用）：系统没有这个机制（例如没有 WebSocket、不用 Cookie 会话），reason 写明依据（读过的配置、入口或依赖）。',
-      '- uncovered（未覆盖）：没有找到防护，或没有人检查过且你无法在本会话内确认；startFiles 写出补审应从哪些文件开始。未覆盖的条目会交给补审会话深入检查。',
+      '- 条目下列出了“搜索命中”的，是这个条目适用的位置：逐处判断，而不是只看一个相关文件。',
+      '- covered（已覆盖）：每个适用位置都有对应的防护或检查，或已有发现覆盖了这个问题；evidence 写出你用 read 读过的代码位置（证据索引中的位置也要读过才能引用），有搜索命中时必须包含命中的前 3 个文件。只在某一处看到防护不能代表其他位置。',
+      '- not_applicable（不适用）：系统没有这个机制（例如没有 WebSocket、不用 Cookie 会话），reason 写明依据（读过的配置、入口或依赖）；有搜索命中时，evidence 要包含你读过的命中位置，说明它为什么不属于这个机制。',
+      '- uncovered（未覆盖）：没有找到防护，或有位置没能核实；startFiles 写出补审应从哪些文件开始（不写时用搜索命中的文件）。未覆盖的条目会交给补审会话深入检查；拿不准时选 uncovered，不要选 covered。',
       '- 完成后调用 submit_checklist，一次提交本批全部 {{n}} 个条目。',
     ].join('\n'),
   },
@@ -369,6 +380,16 @@ export const DOMAINS: PromptDef[] = [
     id: 'feedback.checklist.uncovered_start', group: 'tool', title: '校验反馈：未覆盖须附起点文件', readonly: '校验反馈：提交不合规时返回给模型的说明，只读展示',
     description: 'submit_checklist 校验：uncovered 没有 startFiles；{{i}} 为序号。',
     text: 'items[{{i}}]: uncovered needs startFiles for the follow-up',
+  },
+  {
+    id: 'feedback.checklist.covered_hits', group: 'tool', title: '校验反馈：已覆盖须引用命中文件', readonly: '校验反馈：提交不合规时返回给模型的说明，只读展示',
+    description: 'submit_checklist 校验：covered 的 evidence 没有包含搜索命中的文件；{{i}} 为序号，{{files}} 为缺少的文件。',
+    text: 'items[{{i}}]: covered must cite the hit files where the item applies (read them and add evidence): {{files}}; if one of them is not protected, the item is uncovered',
+  },
+  {
+    id: 'feedback.checklist.na_hits', group: 'tool', title: '校验反馈：有命中时不适用须附证据', readonly: '校验反馈：提交不合规时返回给模型的说明，只读展示',
+    description: 'submit_checklist 校验：条目有搜索命中却判为 not_applicable，evidence 没有包含命中位置；{{i}} 为序号。',
+    text: 'items[{{i}}]: the item has search hits; not_applicable needs evidence at a hit you read showing why it is not this mechanism',
   },
   {
     id: 'feedback.checklist.start_not_file', group: 'tool', title: '校验反馈：起点文件不存在', readonly: '校验反馈：提交不合规时返回给模型的说明，只读展示',

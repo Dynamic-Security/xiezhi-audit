@@ -6,7 +6,6 @@
 // `decide` session picks ONE direction and the step to derive; the engine runs it and writes back. The
 // decide contract carries no facts and no findings (evidence gate): those only come from execution steps.
 import { domainHuntOn, lastOpenLeads } from './domains.js';
-import { EXPLORE_DIRECTION_ROUNDS } from './estimates.js';
 import { newId, SubmitDecision, type SubmitDecision as Decision, stageModel } from '@xiezhi/contracts';
 import type { AuditTool } from '@xiezhi/agent';
 import { fromJson } from '@xiezhi/store';
@@ -76,13 +75,10 @@ export function seedPools(rt: AuditRuntime, _triage?: TriageOutput): void {
   });
 }
 
-/** Rounds of the on-demand exploration of the experts' directions at most. */
-export const AUTO_EXPLORE_ROUNDS = EXPLORE_DIRECTION_ROUNDS;
-
 /**
  * How ⑪ runs: `full` when the strategy turns deep exploration on (the decide loop over everything
  * uncertain); `directions` when it is off by the scene default only (no layer chose `stages.deepExplore`) and the
- * domain experts' last rounds left directions open — up to AUTO_EXPLORE_ROUNDS of them, nothing else; else off.
+ * domain experts' last rounds left directions open — all of them (formerly at most 5), nothing else; else off.
  */
 export function exploreMode(rt: AuditRuntime): 'full' | 'directions' | null {
   const planned = plannedExploreMode(rt);
@@ -112,8 +108,8 @@ export function seedDirections(rt: AuditRuntime): WorkItem[] {
     for (const l of lastOpenLeads(rt)) (byDomain.get(l.domain) ?? byDomain.set(l.domain, []).get(l.domain)!).push(l);
     const lists = [...byDomain.values()];
     const picked: { domain: string; lead: { direction: string; files: string[] } }[] = [];
-    for (let i = 0; picked.length < AUTO_EXPLORE_ROUNDS && lists.some((l) => l.length > i); i++) {
-      for (const l of lists) if (l[i] && picked.length < AUTO_EXPLORE_ROUNDS) picked.push(l[i]!);
+    for (let i = 0; lists.some((l) => l.length > i); i++) {
+      for (const l of lists) if (l[i]) picked.push(l[i]!);
     }
     rt.store.tx(() => picked.forEach(({ domain, lead }, i) => {
       const [path] = lead.files;

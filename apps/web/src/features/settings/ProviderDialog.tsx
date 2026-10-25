@@ -1,20 +1,25 @@
 // Add / edit a model provider: probe the service's models and pick them from a searchable list
 // (manual IDs still possible), check the address, key and each picked model before saving; saving is not blocked
 // by an unchecked or failed check, only flagged. Each picked model carries its context window and output cap: filled
-// from the probe when the service lists them, editable by hand (the server registers 128k / 8192 otherwise).
+// from the probe when the service lists them, editable by hand (the server registers 128k / 8192 otherwise), and
+// whether it may receive facts marked confidential (stored in the global `confidentialModels`).
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ProviderCheckResult, ProviderDto, ProviderProbeResult } from '@xiezhi/contracts';
 import { api, ApiError } from '../../shared/api/client';
-import { Badge, Button, Dialog, Field, Icon, cx, ui, useToast } from '../../shared/ui';
+import { Badge, Button, Dialog, Field, Icon, InfoTip, cx, ui, useToast } from '../../shared/ui';
 import S from './settings.module.css';
 
 /** A provider holds at most this many models (ProviderCreate / ProviderPatch). */
 const MAX_MODELS = 100;
 type ModelEntry = ProviderDto['models'][number];
 type CheckState = { at: string; result: ProviderCheckResult } | null;
-type Limits = { contextWindow?: number; maxTokens?: number };
+/** `images: false` makes the model text only (conversation attachments); unset means it takes images. */
+type Limits = { contextWindow?: number; maxTokens?: number; images?: boolean };
 type LimitsMap = Record<string, Limits>;
+
+/** What “可接收机密事实” means; shown behind the ⓘ next to the tag and on provider cards. */
+export const CONFIDENTIAL_HELP = '开启后，标为“机密”的企业事实可以发给这个模型（例如内网部署的模型）。未开启的模型的会话里不出现这些事实，外发记录中计为“未发送的机密事实”。';
 
 /** A token count typed by hand: digits, optionally with k (thousand) or m (million); empty or invalid clears it. */
 function parseTokens(raw: string): number | undefined {
@@ -38,9 +43,10 @@ function LimitInput({ label, value, min, onChange }: { label: string; value: num
   );
 }
 
-function ModelPicker({ selected, setSelected, configured, discovered, check, limits, setLimits }: {
+function ModelPicker({ selected, setSelected, configured, discovered, check, limits, setLimits, confidential, setConfidential }: {
   selected: string[]; setSelected: (ids: string[]) => void; configured: string[]; discovered: string[] | null;
   check: CheckState; limits: LimitsMap; setLimits: (id: string, l: Limits) => void;
+  confidential: string[]; setConfidential: (f: (ids: string[]) => string[]) => void;
 }) {
   const [q, setQ] = useState('');
   const [manual, setManual] = useState('');
@@ -76,18 +82,33 @@ function ModelPicker({ selected, setSelected, configured, discovered, check, lim
           const r = byCheck.get(id);
           return (
             <li key={id}>
-              <label className={cx(S.pickerItem, on && S.pickerOn)}>
-                <input type="checkbox" checked={on} disabled={!on && full} onChange={() => toggle(id)} />
-                <span className={cx(ui.mono, S.pickerId)}>{id}</span>
-                {isNew && <Badge tone="accent">新</Badge>}
-                {missing && <Badge tone="warn">服务端未列出</Badge>}
-                {r && <Badge tone={r.ok ? 'ok' : 'danger'}>{r.ok ? `可用 · ${r.ms} ms` : '不可用'}</Badge>}
-              </label>
+              <div className={cx(S.pickerRow, on && S.pickerOn)}>
+                <label className={S.pickerItem}>
+                  <input type="checkbox" checked={on} disabled={!on && full} onChange={() => toggle(id)} />
+                  <span className={cx(ui.mono, S.pickerId)}>{id}</span>
+                  {isNew && <Badge tone="accent">新</Badge>}
+                  {missing && <Badge tone="warn">服务端未列出</Badge>}
+                  {r && <Badge tone={r.ok ? 'ok' : 'danger'}>{r.ok ? `可用 · ${r.ms} ms` : '不可用'}</Badge>}
+                </label>
+                {on && (
+                  <span className={S.confWrap}>
+                    <button type="button" className={cx(S.confTag, confidential.includes(id) && S.confOn)} aria-pressed={confidential.includes(id)} aria-label={`可接收机密事实 ${id}`}
+                      onClick={() => setConfidential((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}>
+                      <Icon name="lock" size={12} />{confidential.includes(id) ? '可接收机密' : '不接收机密'}
+                    </button>
+                    <InfoTip label="可接收机密事实的含义">{CONFIDENTIAL_HELP}</InfoTip>
+                  </span>
+                )}
+              </div>
               {r && !r.ok && <div className={S.pickerErr}>{r.detail}</div>}
               {on && (
                 <div className={S.limits}>
                   <LimitInput label="上下文窗口" min={1024} value={limits[id]?.contextWindow} onChange={(v) => setLimits(id, { ...limits[id], contextWindow: v })} />
                   <LimitInput label="最大输出" min={256} value={limits[id]?.maxTokens} onChange={(v) => setLimits(id, { ...limits[id], maxTokens: v })} />
+                  <label className={S.limitCheck} title="关闭后，会话中不能向这个模型发送图片">
+                    <input type="checkbox" checked={limits[id]?.images !== false} onChange={(e) => setLimits(id, { ...limits[id], images: e.target.checked ? undefined : false })} />
+                    <span>支持图片</span>
+                  </label>
                   {!limits[id]?.contextWindow && <span className={S.limitHint}>未设置时按 128k 上下文、8192 输出处理</span>}
                 </div>
               )}
@@ -113,6 +134,7 @@ export function ProviderDialog({ open, onClose, existing, autoProbe }: { open: b
   const [discovered, setDiscovered] = useState<string[] | null>(null);
   /** Context window / output cap per model: the saved values, then what a probe reports for models without one. */
   const [limits, setLimitsMap] = useState<LimitsMap>({});
+  const [confidential, setConfidential] = useState<string[]>([]);
   const setLimits = (mid: string, l: Limits) => setLimitsMap((cur) => ({ ...cur, [mid]: l }));
   const [probe, setProbe] = useState<{ ok: boolean; detail: string } | null>(null);
   const [check, setCheck] = useState<CheckState>(null);
@@ -135,7 +157,7 @@ export function ProviderDialog({ open, onClose, existing, autoProbe }: { open: b
         // a value already set (saved or typed) is kept; the probe fills only what is missing.
         setLimitsMap((cur) => {
           const next = { ...cur };
-          for (const [mid, l] of Object.entries(r.limits ?? {})) next[mid] = { contextWindow: cur[mid]?.contextWindow ?? l.contextWindow, maxTokens: cur[mid]?.maxTokens ?? l.maxTokens };
+          for (const [mid, l] of Object.entries(r.limits ?? {})) next[mid] = { ...cur[mid], contextWindow: cur[mid]?.contextWindow ?? l.contextWindow, maxTokens: cur[mid]?.maxTokens ?? l.maxTokens };
           return next;
         });
       }
@@ -156,7 +178,8 @@ export function ProviderDialog({ open, onClose, existing, autoProbe }: { open: b
     if (!open) return;
     setId(existing?.id ?? ''); setApiKind(existing?.api ?? 'openai-completions'); setBaseUrl(existing?.baseUrl ?? ''); setKey('');
     setSelected(existing?.models.map((m) => m.id) ?? []); setDiscovered(null); setProbe(null);
-    setLimitsMap(Object.fromEntries((existing?.models ?? []).map((m) => [m.id, { contextWindow: m.contextWindow, maxTokens: m.maxTokens }]))); setCheck(null); setErr(null);
+    setLimitsMap(Object.fromEntries((existing?.models ?? []).map((m) => [m.id, { contextWindow: m.contextWindow, maxTokens: m.maxTokens, ...(m.images === false ? { images: false } : {}) }]))); setCheck(null); setErr(null);
+    setConfidential((existing?.models ?? []).filter((m) => m.confidential).map((m) => m.id));
   }, [open, existing]);
   // Opened from a provider card's “探测可用模型”: probe with the saved key at once.
   useEffect(() => {
@@ -179,9 +202,9 @@ export function ProviderDialog({ open, onClose, existing, autoProbe }: { open: b
     // Keep what is already known about a model (name, context window…); new picks are plain IDs.
     const keep = new Map<string, ModelEntry>((existing?.models ?? []).map((m) => [m.id, m]));
     const list = selected.map((m) => {
-      const { contextWindow: _c, maxTokens: _t, ...base } = keep.get(m) ?? { id: m };
+      const { contextWindow: _c, maxTokens: _t, confidential: _s, images: _i, ...base } = keep.get(m) ?? { id: m };
       const l = limits[m];
-      return { ...base, ...(l?.contextWindow ? { contextWindow: l.contextWindow } : {}), ...(l?.maxTokens ? { maxTokens: l.maxTokens } : {}) };
+      return { ...base, ...(l?.contextWindow ? { contextWindow: l.contextWindow } : {}), ...(l?.maxTokens ? { maxTokens: l.maxTokens } : {}), ...(l?.images === false ? { images: false } : {}), ...(confidential.includes(m) ? { confidential: true } : {}) };
     });
     try {
       if (existing) {
@@ -221,7 +244,7 @@ export function ProviderDialog({ open, onClose, existing, autoProbe }: { open: b
       </Field>
       {originChanged && !key && <div className={ui.banner} style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}><Icon name="alert" />服务地址的来源（origin）已变更：密钥与地址绑定，探测与测验不会带上原密钥，保存后原密钥会被清除。</div>}
       <Field label="模型" hint="勾选要使用的模型；按服务端命名，例如 openai/gpt-6-luna">
-        <ModelPicker key={open ? existing?.id ?? 'new' : 'closed'} selected={selected} setSelected={setSelected} configured={configured} discovered={discovered} check={check} limits={limits} setLimits={setLimits} />
+        <ModelPicker key={open ? existing?.id ?? 'new' : 'closed'} selected={selected} setSelected={setSelected} configured={configured} discovered={discovered} check={check} limits={limits} setLimits={setLimits} confidential={confidential} setConfidential={setConfidential} />
       </Field>
       {probe && <div className={cx(S.result, probe.ok ? S.resultOk : S.resultBad)} role="status"><Icon name={probe.ok ? 'check' : 'alert'} size={13} />探测：{probe.detail}</div>}
       {check && (

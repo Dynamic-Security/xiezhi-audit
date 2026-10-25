@@ -87,7 +87,7 @@ export function executionOverview(store: Store, auditId: string): ExecutionDto {
       continue;
     }
     if (e.type === 'model.fallback' && e.stepId) {
-      fallbacks.set(e.stepId, { from: String(p.from), reason: String(p.reason), degraded: p.degraded === true, manual: p.manual === true });
+      fallbacks.set(e.stepId, { from: String(p.from), reason: String(p.reason), degraded: p.degraded === true, manual: p.manual === true, later: p.later === true });
       continue;
     }
     if (e.type === 'question.asked' && e.stepId && p.blocking) {
@@ -167,7 +167,7 @@ export function executionOverview(store: Store, auditId: string): ExecutionDto {
     const { repo, list } = candidatesOf(s);
     const dto: ExecStepDto = {
       id: s.id, kind: s.kind, lineage: s.lineage_id, status: s.status, startedAt: iso(s.started_at), endedAt: iso(s.ended_at),
-      tokens: s.tokens_in + s.tokens_out, repo, subject: subjectOf(s), segment: segmentOf(s),
+      tokens: s.tokens_in + s.tokens_out + s.tokens_cached, repo, subject: subjectOf(s), segment: segmentOf(s),
       model: s.provider && s.model ? `${s.provider}/${s.model}` : null, fallback: fallbacks.get(s.id) ?? null, candidates: list, agents: (byStep.get(s.id) ?? []).map((a) => agentOf(a, s)),
     };
     const ph = phaseOf(s);

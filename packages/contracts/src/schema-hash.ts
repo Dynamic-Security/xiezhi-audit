@@ -2,15 +2,14 @@
 // fixture recorded against other schemas is stale and must be re-recorded.
 import { canonicalJson, sha256Hex } from './hash.js';
 import {
-  SubmitChallenge, SubmitDecision, SubmitFindings, SubmitPlan, SubmitReverify, SubmitReview, SubmitStateUpdate, SubmitVerdictReview,
+  SubmitChallenge, SubmitDecision, SubmitFindings, SubmitPlan, SubmitReverify, SubmitStateUpdate, SubmitVerdictReview,
 } from './submit.js';
 import { SubmitRiskVerdicts } from './hunt.js';
-import { SubmitVariantPatterns } from './context.js';
 import { DraftConnector, ProposeAuditPlan, ProposeHunt, ProposeMerge, ProposeReverify, ProposeRevision, ProposeSplit, ReportInvestigation } from './conversation.js';
 
 export function toolSchemaHash(): string {
   return sha256Hex(canonicalJson({
-    SubmitChallenge, SubmitDecision, SubmitFindings, SubmitPlan, SubmitReverify, SubmitReview, SubmitStateUpdate, SubmitVerdictReview, SubmitRiskVerdicts,
-    SubmitVariantPatterns, DraftConnector, ProposeAuditPlan, ProposeHunt, ProposeMerge, ProposeReverify, ProposeRevision, ProposeSplit, ReportInvestigation,
+    SubmitChallenge, SubmitDecision, SubmitFindings, SubmitPlan, SubmitReverify, SubmitStateUpdate, SubmitVerdictReview, SubmitRiskVerdicts,
+    DraftConnector, ProposeAuditPlan, ProposeHunt, ProposeMerge, ProposeReverify, ProposeRevision, ProposeSplit, ReportInvestigation,
   }));
 }

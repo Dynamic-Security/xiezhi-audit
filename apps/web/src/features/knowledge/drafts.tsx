@@ -108,7 +108,7 @@ export function DraftDialog({ id, onClose, onApproved }: { id: string | null; on
             <Badge tone={STATUS[d.status]!.t}>{STATUS[d.status]!.l}</Badge>
             <Badge>{d.layer === 'global' ? '全局知识库' : '项目知识库'}</Badge>
             {d.kind === 'case' && <Badge tone="info">案例 · {d.library}</Badge>}
-            <span className={ui.faint} style={{ fontSize: 12 }}>来源：{d.source.label}{d.model ? ` · 整理模型 ${d.model}` : ''}{d.tokens ? ` · ${fmt.compact(d.tokens)} tokens` : ''}</span>
+            <span className={ui.faint} style={{ fontSize: 12 }}>来源：{d.source.label}{d.model ? ` · 整理模型 ${d.model}` : ''}{d.tokens ? ` · ${fmt.tokens(d.tokens)} tokens` : ''}</span>
           </div>
           {d.status === 'organizing' && <div className={ui.row} style={{ gap: 8 }}><Spinner /><span className={ui.muted}>AI 正在整理并检查重复与冲突…</span></div>}
           {d.error && <div className={ui.banner} role="alert">整理失败：{d.error}</div>}

@@ -6,7 +6,7 @@ import { settleObligation } from '../obligations.js';
 import { pool } from '../pool.js';
 import type { StepRow } from '../state.js';
 import { ensureStep } from '../step-runner.js';
-import { huntStep } from '../steps/hunt.js';
+import { checklistConclusion, huntStep } from '../steps/hunt.js';
 import type { PipelineRun, RunResult } from './context.js';
 
 export async function checklistStage(p: PipelineRun): Promise<RunResult | null> {
@@ -51,8 +51,9 @@ export async function checklistStage(p: PipelineRun): Promise<RunResult | null> 
       outputRef: r.outputRef,
       apply: () => {
         r.apply?.();
-        const scope = (store.artifacts.getJson<{ scopeReviewed?: string[] }>(r.outputRef).scopeReviewed ?? []).join(', ').slice(0, 600);
-        for (const k of keys) settleObligation(rt, 'checklist', k, 'concluded', `补审：${scope || '已检查'}`, ctx.stepId);
+        const scope = (store.artifacts.getJson<{ scopeReviewed?: string[] }>(r.outputRef).scopeReviewed ?? []).join('\n');
+        // Each item settles with its own conclusion line (the batch's summary used to settle all of them).
+        for (const k of keys) settleObligation(rt, 'checklist', k, 'concluded', `补审：${(checklistConclusion(scope, k) ?? scope).slice(0, 600) || '已检查'}`, ctx.stepId);
       },
     };
   });

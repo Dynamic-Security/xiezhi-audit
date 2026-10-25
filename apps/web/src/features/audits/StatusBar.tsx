@@ -4,13 +4,26 @@
 import type { AuditDetailDto, ExecStepDto, ExecutionDto } from '@xiezhi/contracts';
 import { STEP_KIND, fmt } from '../../shared/format/messages';
 import { ConcurrencyChips, SessionLimit, StageQuotaSwitch, agentDoing } from './Running';
-import { Icon, cx } from '../../shared/ui';
+import { Icon, InfoTip, cx } from '../../shared/ui';
+import { segmentItems } from './segments';
+import { SEGMENT_INFO, type StageInfo } from './stageInfo';
 import S from './statusbar.module.css';
 
 export const SEGMENT_LABEL: Record<string, string> = {
-  snapshot: '固定版本', index: '结构索引', plan: '生成计划', profile: '画像', scope: '影响范围', threat: '威胁建模', triage: '初筛', hunt: '并行追查', external: '外部结果', checklist: '清单核对', recheck: '结论复查',
+  snapshot: '固定版本', index: '结构索引', plan: '生成计划', profile: '画像与威胁建模', scope: '影响范围', threat: '威胁建模', triage: '初筛', hunt: '领域审计', external: '外部结果', checklist: '清单核对', recheck: '结论复查',
   explore: '深度探索', challenge: '对抗复核', verify: '定向复验', locate: '定位', judge: '研判', finalize: '汇总',
 };
+/** The ⓘ next to a segment: what it does, which model it runs and which quota it charges. */
+function SegmentInfo({ label, info }: { label: string; info: StageInfo }) {
+  return (
+    <InfoTip label={`「${label}」说明`}>
+      <b>{label}</b>
+      <div>{info.does}</div>
+      {info.model && <div>模型：{info.model}</div>}
+      {info.quota && <div>额度：{info.quota}</div>}
+    </InfoTip>
+  );
+}
 const TERMINAL_STEP = ['succeeded', 'failed', 'skipped', 'cancelled'];
 const TERMINAL_AUDIT = ['completed', 'partial', 'failed', 'cancelled'];
 
@@ -26,7 +39,7 @@ function segmentState(steps: ExecStepDto[]): SegState {
   return steps.some((s) => TERMINAL_STEP.includes(s.status)) ? 'running' : 'pending';
 }
 
-/** “1 分 20 秒 · 3.4 万 tokens” for a segment: from its first start to its last end (or now). */
+/** “1 分 20 秒 · 0.034M tokens” for a segment: from its first start to its last end (or now). */
 function segmentMeta(steps: ExecStepDto[]): string {
   const starts = steps.map((s) => s.startedAt).filter(Boolean).map((t) => new Date(t!).getTime());
   if (!starts.length) return '尚未开始';
@@ -34,7 +47,7 @@ function segmentMeta(steps: ExecStepDto[]): string {
   const ends = steps.map((s) => s.endedAt).filter(Boolean).map((t) => new Date(t!).getTime());
   const end = running || !ends.length ? Date.now() : Math.max(...ends);
   const tokens = steps.reduce((n, s) => n + s.tokens, 0);
-  return [fmt.duration(end - Math.min(...starts)), tokens ? `${fmt.compact(tokens)} tokens` : ''].filter(Boolean).join(' · ');
+  return [fmt.duration(end - Math.min(...starts)), tokens ? `${fmt.tokens(tokens)} tokens` : ''].filter(Boolean).join(' · ');
 }
 
 /** One running step in a few words: its batch or kind, and what its main agent does or waits for. */
@@ -51,9 +64,10 @@ function overall(x: ExecutionDto, audit: AuditDetailDto): string {
   const est = x.estimate.tokens;
   const used = audit.budget.consumed.tokens;
   const elapsed = audit.budget.consumed.durationMs;
-  const doneSegs = x.segments.filter((k) => ['done', 'skipped', 'failed'].includes(segmentState(x.phases.flatMap((p) => p.steps).filter((s) => s.segment === k)))).length;
+  const items = segmentItems(x.segments);
+  const doneSegs = items.filter((i) => ['done', 'skipped', 'failed'].includes(segmentState(x.phases.flatMap((p) => p.steps).filter((s) => i.members.includes(s.segment))))).length;
   // Tokens track the heavy segments; finished segments keep the figure from lagging while tokens are few.
-  const p = Math.min(0.99, Math.max(est ? used / est : 0, doneSegs / Math.max(1, x.segments.length)));
+  const p = Math.min(0.99, Math.max(est ? used / est : 0, doneSegs / Math.max(1, items.length)));
   const pct = `总进度约 ${Math.round(p * 100)}%`;
   if (p < 0.05 || elapsed < 20_000) return `${pct} · 正在估算剩余时间`;
   return `${pct} · 预计还需约 ${fmt.duration(Math.max(0, (elapsed * (1 - p)) / p))}`;
@@ -71,19 +85,26 @@ export function StatusBar({ x, audit, selected, onSelect }: {
   return (
     <div className={S.bar} role="region" aria-label="作业进度">
       <ol className={S.segments}>
-        {x.segments.map((k) => {
-          const own = steps.filter((s) => s.segment === k);
+        {segmentItems(x.segments).map(({ key: k, members }) => {
+          const own = steps.filter((s) => members.includes(s.segment));
           const st = segmentState(own);
           const done = own.filter((s) => TERMINAL_STEP.includes(s.status)).length;
+          // Failed and skipped steps are said next to the count, so a finished stage that only partly
+          // ran is visible at a glance; clicking it shows them.
+          const failed = own.filter((s) => s.status === 'failed').length;
+          const skipped = st === 'skipped' ? 0 : own.filter((s) => s.status === 'skipped').length;
+          const issues = [failed ? `失败 ${failed}` : '', skipped ? `跳过 ${skipped}` : ''].filter(Boolean).join(' · ');
           return (
             <li key={k} className={S.item}>
               <button className={cx(S.seg, S[st], selected === k && S.selected)} aria-pressed={selected === k} disabled={!own.length}
-                title={`${SEGMENT_LABEL[k] ?? k}：${segmentMeta(own)}${own.length ? '。点击只看这个环节的轨迹' : ''}`}
+                title={`${SEGMENT_LABEL[k] ?? k}：${segmentMeta(own)}${issues ? `；${issues}` : ''}${own.length ? '。点击只看这个环节的轨迹' : ''}`}
                 onClick={() => onSelect(selected === k ? null : k)}>
                 <span className={S.dot}>{st === 'done' ? <Icon name="check" size={10} /> : st === 'failed' ? '!' : null}</span>
                 <span>{SEGMENT_LABEL[k] ?? k}</span>
                 {own.length > 1 && <span className={S.count}>{done}/{own.length}</span>}
+                {issues && <span className={S.issues}>{issues}</span>}
               </button>
+              {SEGMENT_INFO[k] && <SegmentInfo label={SEGMENT_LABEL[k] ?? k} info={SEGMENT_INFO[k]} />}
             </li>
           );
         })}

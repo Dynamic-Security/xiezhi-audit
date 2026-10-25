@@ -6,6 +6,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../shared/api/client';
 import { useAi } from '../assistant/ai';
 import { Composer, clientId } from '../conversations/Thread';
+import { QuickStart } from '../conversations/Templates';
+import { attachmentsBody, type PendingFile } from '../conversations/attachments';
 import { useConversations, useDashboard } from '../../shared/api/queries';
 import { AUDIT_STATUS, CONFIRM, HANDLING, PHASE, SEVERITY, SEVERITY_ORDER, fmt } from '../../shared/format/messages';
 import { AuditStatusBadge, Badge, Button, EmptyState, ErrorState, Icon, Loading, Progress, SeverityBadge, ui, useToast } from '../../shared/ui';
@@ -31,7 +33,7 @@ function AuditRow({ a, action }: { a: AuditSummaryDto; action?: string }) {
       <div className={H.itemIcon}><Icon name={a.status === 'waiting_budget' ? 'clock' : a.status === 'awaiting_confirm' ? 'check' : 'activity'} /></div>
       <div className={ui.grow}>
         <div className={H.itemTitle}>{a.title}</div>
-        <div className={H.itemMeta}>{a.projectName} · {PHASE[a.phase]} · {fmt.compact(b.consumed.tokens)}/{fmt.compact(b.effective.tokens)} tokens · {fmt.ago(a.createdAt)}</div>
+        <div className={H.itemMeta}>{a.projectName} · {PHASE[a.phase]} · {fmt.tokens(b.consumed.tokens)}/{fmt.tokens(b.effective.tokens)} tokens · {fmt.ago(a.createdAt)}</div>
       </div>
       {action ? <Badge tone="accent">{action}</Badge> : <AuditStatusBadge status={a.status} />}
     </Link>
@@ -70,15 +72,17 @@ export function HomePage() {
   const navigate = useNavigate();
   const [newProject, setNewProject] = useState(false);
   const [text, setText] = useState('');
+  const [templates, setTemplates] = useState(false);
+  const [fill, setFill] = useState(0);
   const ai = useAi();
   const qc = useQueryClient();
   const toast = useToast();
   // The home input starts a conversation and continues it in the AI panel.
-  const send = async (content: string, mentions: MentionDto[]) => {
+  const send = async (content: string, mentions: MentionDto[], files: PendingFile[]) => {
     try {
       const refs = mentions.map((m) => ({ kind: m.kind, id: m.id }));
       const c = await api.post<ConversationDto>('/conversations', {});
-      await api.post(`/conversations/${c.id}/messages`, { clientMessageId: clientId(), content, mentions: refs });
+      await api.post(`/conversations/${c.id}/messages`, { clientMessageId: clientId(), content, mentions: refs, ...attachmentsBody(files) });
       ai.show(c.id);
       void qc.invalidateQueries({ queryKey: ['conversations'] });
       return true;
@@ -93,14 +97,16 @@ export function HomePage() {
         <div className={H.hero}>
           <h1 className={H.heroTitle}>今天要审计什么？</h1>
           <div className={H.composer}>
-            <Composer text={text} setText={setText} onSend={send} hint={false} placeholder="问点什么，或让 Agent 审计 @项目、复验漏洞、排查某个 CVE…" />
+            <Composer text={text} setText={setText} fillSignal={fill} onSend={send} hint={false} placeholder="问点什么，或让 Agent 审计 @项目、复验漏洞、排查某个 CVE…" />
           </div>
           <div className={H.quick}>
             <button className={H.quickBtn} onClick={() => void navigate({ to: '/audits/new', search: {} })}><Icon name="play" size={14} /> 全量审计</button>
             <button className={H.quickBtn} onClick={() => void navigate({ to: '/hunts/new', search: {} })}><Icon name="target" size={14} /> 风险排查</button>
             <button className={H.quickBtn} onClick={() => setText('复验所有标为已修复的漏洞')}><Icon name="refresh" size={14} /> 复验已修复</button>
             <button className={H.quickBtn} onClick={() => setNewProject(true)}><Icon name="plus" size={14} /> 新建项目</button>
+            <button className={H.quickBtn} aria-expanded={templates} onClick={() => setTemplates(!templates)}><Icon name="sparkle" size={14} /> 用 AI 开始</button>
           </div>
+          {templates && <QuickStart onPick={(t) => { setText(t); setFill((n) => n + 1); }} />}
         </div>
         {d.isLoading && <Loading rows={5} />}
         {d.error && <ErrorState error={d.error} onRetry={() => void d.refetch()} />}

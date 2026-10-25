@@ -1,6 +1,6 @@
 ---
 name: fp-precedents-and-exclusions
-description: 硬排除清单与误报先例。hunt 与 challenge 阶段必读，用于判断哪些问题不应作为正式发现上报。
+description: 硬排除清单与误报先例。hunt 与 challenge 阶段必读，用于判断哪些问题不应作为正式发现上报，以及哪些看似“加固”的问题不能排除。
 category: audit_method
 scope: global
 load: phase:hunt,challenge
@@ -9,9 +9,10 @@ load: phase:hunt,challenge
 
 以下情形默认不上报。如果确有具体可利用路径，必须在 reasoning 中说明为何不属于排除项。
 
-1. **纯拒绝服务 / 资源耗尽**：无认证的大请求、正则回溯、无限循环等，除非导致数据泄露或越权。
+1. **只影响性能的拒绝服务**：需要大量请求才能拖慢服务、正则回溯只影响单个请求、分页未限制大小等。
    - 先例：接口未限制分页大小 → 不报。
-2. **缺少加固但无具体利用**：缺少安全响应头、未开启 CSRF token 但接口仅接受 JSON 且无 Cookie 认证、日志未脱敏但无敏感数据流入。
+   - 例外（要报，归 dos）：未认证或低权限用户用单个或少量请求，就能让进程崩溃、长时间不可用或耗尽共享资源（空指针崩溃、无界解压或解析、全局锁）。
+2. **从未有过的加固**：缺少安全响应头；日志未脱敏但没有敏感数据流入；接口只接受 JSON（拒绝简单表单 Content-Type）、并且不使用 Cookie 等浏览器自动携带的凭据时，没有 CSRF token。
    - 先例：未设置 `X-Frame-Options` → 不报。
 3. **仅限测试代码**：`src/test/`、`*_test.go`、mock、示例代码。
 4. **日志伪造**：向日志写入用户输入导致换行注入，无后续解析危害。
@@ -20,8 +21,18 @@ load: phase:hunt,challenge
 7. **常量参数**：危险 API 的参数全部为常量或受服务端配置控制（例如 `new ProcessBuilder("uptime")`）。
 8. **参数化查询**：使用 `?`、`#{}`、命名参数的查询不是 SQL 注入；需要看到字符串拼接、`${}` 或 `fmt.Sprintf` 进入 SQL。
 
+# 不能按“加固”排除的情形
+
+排除清单只针对从未有过、也不影响认证与授权本身的加固。下面这些削弱的是认证、授权或防伪造机制本身，有可达路径就按对应类别上报，严重度按可利用性给，前置条件写进 exploitConditions：
+
+- **已有的安全控制被绕过或放宽**：缺少 token、签名或参数时直接放行；校验被注释或提前返回；白名单或时间窗被放宽。系统已经有这个控制，说明它是安全前提；“放行”分支本身就是缺陷。
+- **使用 Cookie 会话时的 CSRF**：校验在缺少 CSRF token、cookie 或请求头时放行，或只校验存在、不比较值，都按 csrf 上报。`SameSite` 只是缓解（同站子域、顶级 GET 导航、旧浏览器与部分客户端不受约束），不能据此排除：把 SameSite 写进 exploitConditions，并相应下调严重度。
+- **密钥、签名、令牌、OTP 的非恒定时间比较**：用 `===`、`==`、`equals`、`strcmp`、`bytes.Equal` 比较秘密值（应使用 `crypto.timingSafeEqual`、`hmac.Equal`、`MessageDigest.isEqual`、`hmac.compare_digest`），按 authn 上报。
+- **签名请求缺少防重放**：签名不覆盖时间戳或 nonce，nonce 不检查是否已用，或时间窗过宽，按 authn 上报。
+- **一次性口令的窗口与复用**：TOTP 允许的时间步超过前后 1 步，或同一个码可以重复使用，按 authn 上报。
+
 # 误报先例
 
 - 管理员专用接口中的命令执行：若鉴权确认只有管理员可达，严重度应下调并在 exploitConditions 写明“需要管理员权限”，而不是直接删除。
-- 上游网关已鉴权：代码中缺少鉴权但入口只能经网关访问时，不能断言“已被防护”，应转为“待确认”，在 missingContext 写明需要确认的网关策略。
+- 上游网关已鉴权：代码中缺少鉴权但入口只能经网关访问时，不能断言“已被防护”，应提交为待确认（verdict 为 pending），在 pendingCondition 的 missing 中写明需要确认的网关策略。
 - `findById(id)` 本身不是越权：越权成立需要“对象属于其他用户且调用方未校验归属”，并且入口对普通用户可达。

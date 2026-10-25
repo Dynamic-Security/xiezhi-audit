@@ -8,8 +8,10 @@ import { boundaryDeclaration } from './boundary.js';
 
 // the texts are catalog entries in the knowledge base (`role.*`, `scene.*`, `rules.*`,
 // `conversation.*`); an audit's or conversation's frozen overrides apply through the prompt scope.
-const ROLE_STEPS: StepKind[] = ['plan', 'profile', 'triage', 'hunt', 'challenge', 'reconcile', 'verify-fix', 'report'];
-const roleId = (k: StepKind) => `role.${k.replace(/-/g, '_')}`;
+// No `report` role — the report step opens no session; the AI report has its own (`role.ai_report`).
+const ROLE_STEPS: StepKind[] = ['plan', 'profile', 'threat-model', 'triage', 'hunt', 'challenge', 'reconcile', 'verify-fix'];
+// `role.threat_model` is the requirement-document analyst, so the code threat model's role is `role.threat`.
+const roleId = (k: StepKind) => (k === 'threat-model' ? 'role.threat' : `role.${k.replace(/-/g, '_')}`);
 const roles = (): Partial<Record<StepKind, string>> => Object.fromEntries(ROLE_STEPS.map((k) => [k, P(roleId(k))]));
 const role = (k: StepKind) => P(roleId(ROLE_STEPS.includes(k) ? k : 'hunt'));
 const SCENE_KEYS: Scene[] = ['full', 'incremental', 'risk_hunt', 'reverify'];

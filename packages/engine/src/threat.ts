@@ -17,7 +17,8 @@ import { P } from '@xiezhi/knowledge';
 
 /** Bump when the threat-model prompt changes. */
 // 3: access policy (submit_access_policy).
-export const THREAT_PROMPT_VERSION = 3;
+// 4: its own role (role.threat_model) and session; never combined with the profile.
+export const THREAT_PROMPT_VERSION = 4;
 /** Hypotheses per verification batch. */
 export const HYP_BATCH = 5;
 
@@ -47,15 +48,17 @@ export function hypothesisAuditIds(store: Store, auditId: string): string[] {
 }
 
 /**
- * What the analysis should focus on in an incremental setting: the audit's own impact set, or — for a
+ * What the analysis of `repo` should focus on in an incremental setting: the audit's own impact set of it, or — for a
  * supplement of an incremental audit — the source audit's. Null = the whole repository.
  */
-export function analysisFocus(rt: AuditRuntime): { changedFiles: string[]; affectedEntries: Set<string> } | null {
+export function analysisFocus(rt: AuditRuntime, repo = rt.targetRepo.name): { changedFiles: string[]; affectedEntries: Set<string> } | null {
   const sup = supplementScope(rt);
   const auditId = sup ? sup.auditId : rt.auditId;
   const scene = sup ? rt.store.get<{ scene: string }>('SELECT scene FROM audit WHERE id = ?', sup.auditId)?.scene : rt.audit.scene;
   if (scene !== 'incremental') return null;
-  const row = rt.store.get<{ output_ref: string }>(`SELECT output_ref FROM step WHERE audit_id = ? AND kind = 'scope' AND status = 'succeeded' ORDER BY seq DESC LIMIT 1`, auditId);
+  // One scope step per target; one without `input.repo` (older audits) is the first target's.
+  const row = rt.store.all<{ output_ref: string; input: string }>(`SELECT output_ref, input FROM step WHERE audit_id = ? AND kind = 'scope' AND status = 'succeeded' ORDER BY seq DESC`, auditId)
+    .find((r) => (fromJson<{ repo?: string }>(r.input, {}).repo ?? rt.targetRepo.name) === repo);
   if (!row) return null;
   const impact = rt.store.artifacts.getJson<ImpactSet>(row.output_ref);
   if (impact.mode === 'full_scan') return null;
@@ -105,16 +108,12 @@ export interface ThreatSpec {
   finish(submissions: Record<string, unknown[]>, stepId: string): StepResult;
 }
 
-/**
- * The threat model's task and contract (shared by the threat-model step and the system-understanding session).
- * `combined`: inside the system-understanding session — no profile yet (the same session writes it), and code is read
- * through sub-agents.
- */
-export function threatSpec(rt: AuditRuntime, repo: RepoInfo, model: ModelRef, opts: { combined?: boolean } = {}): ThreatSpec {
+/** The threat model's task and contract. */
+export function threatSpec(rt: AuditRuntime, repo: RepoInfo, model: ModelRef): ThreatSpec {
   const max = rt.strategy.limits.maxCandidates;
-  const profile = opts.combined ? null : profileFor(rt, repo);
+  const profile = profileFor(rt, repo);
   const idx = rt.indexes.get(repo.name);
-  const focus = analysisFocus(rt);
+  const focus = analysisFocus(rt, repo.name);
   const entries = (idx?.entrypoints ?? []) as EntryPoint[];
   const ordered = focus ? [...entries.filter((e) => focus.affectedEntries.has(e.entryId)), ...entries.filter((e) => !focus.affectedEntries.has(e.entryId))] : entries;
   const view = rt.views.get(repo.name)!;
@@ -165,17 +164,13 @@ export function threatSpec(rt: AuditRuntime, repo: RepoInfo, model: ModelRef, op
     ...(hypothesesOn ? [
       P('threat.req.hypothesis_fields'),
     ] : [P('threat.req.lead_fields')]),
-    opts.combined
-      ? P('threat.req.read_by_task')
-      : P('threat.req.read_self'),
+    P('threat.req.read_self'),
     P('threat.req.untrusted'),
     ...(focus ? ['', P('threat.focus', { n: focus.changedFiles.length }), `变更文件：${focus.changedFiles.slice(0, 80).join('、') || '（无）'}${focus.changedFiles.length > 80 ? ' …' : ''}`] : []),
-    ...(opts.combined ? [''] : [
-      '',
-      '## 项目画像与威胁模型',
-      profile ? renderThreatModel(profile.profile, 6000) : P('threat.no_profile'),
-      '',
-    ]),
+    '',
+    '## 项目画像',
+    profile ? renderThreatModel(profile.profile, 6000) : P('threat.no_profile'),
+    '',
     ...(mustConsider.length ? [
       P('threat.must_consider', { n: mustConsider.length, listAs: hypothesesOn ? P('threat.must_consider.as_hypothesis') : P('threat.must_consider.as_lead') }),
       ...mustConsider.map((e) => entryLine(e, !!focus?.affectedEntries.has(e.entryId))),
@@ -207,16 +202,7 @@ export async function threatModelStep(rt: AuditRuntime, ctx: AttemptContext, rep
   return spec.finish(outcome.submissions, ctx.stepId);
 }
 
-/**
- * the threat-model step of a repository whose system-understanding session (the profile step of this
- * audit) already wrote the threat model — no session, the submissions are applied as this step's result.
- */
-export function threatFromUnderstanding(rt: AuditRuntime, ctx: AttemptContext, repo: RepoInfo, model: ModelRef, submissions: Record<string, unknown[]>): StepResult {
-  rt.event('judgement.made', { kind: 'threat_from_understanding', repo: repo.name }, ctx.stepId);
-  return threatResult(rt, repo, model, submissions, ctx.stepId, { max: rt.strategy.limits.maxCandidates, domainsOn: domainHuntOn(rt), hypothesesOn: threatHypothesesOn(rt.strategy) });
-}
-
-/** The threat model's result from its submissions (a threat-model session, or the system-understanding session). */
+/** The threat model's result from its submissions. */
 export function threatResult(rt: AuditRuntime, repo: RepoInfo, model: ModelRef, submissions: Record<string, unknown[]>, stepId: string, o: { max: number; domainsOn: boolean; hypothesesOn: boolean }): StepResult {
   const { max, domainsOn, hypothesesOn } = o;
   const outcome = { submissions };

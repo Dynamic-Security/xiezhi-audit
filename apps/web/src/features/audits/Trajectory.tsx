@@ -4,13 +4,15 @@ import { useEffect, useMemo, useState } from 'react';
 import type { AuditDetailDto, EventDto, ExecCandidateDto, StepDto } from '@xiezhi/contracts';
 import { useExecution, useFindings, useSteps, useTrajectory } from '../../shared/api/queries';
 import {
-  AUDIT_STATUS, BUDGET_STAGE, EVENT_LABEL, INTERVENTION, PARTIAL_REASON, SESSION_STATUS, STATUS_REASON, STEP_KIND, STEP_STATUS, TRAJECTORY_FILTERS, cacheHitText, categoryLabel, fmt, toolArgs, toolLabel,
+  AUDIT_STATUS, BUDGET_STAGE, EVENT_LABEL, INTERVENTION, PARTIAL_REASON, SESSION_STATUS, STATUS_REASON, STEP_KIND, STEP_STATUS, TRAJECTORY_FILTERS, stepLabel, cacheHitText, categoryLabel, fmt, toolArgs, toolLabel,
 } from '../../shared/format/messages';
 import { Badge, EmptyState, Icon, Loading, cx, ui, type IconName } from '../../shared/ui';
 import A from './audits.module.css';
 import { CANDIDATE_STATUS, CandidateRow, headline } from './candidates';
 import { SEGMENT_LABEL, StatusBar } from './StatusBar';
+import { segmentMembers } from './segments';
 import { FALLBACK_REASON, ModelBadge, RunningPanel } from './Running';
+import { addSubEvent, subGoal, subNoSlot, type SubNode } from './subagent';
 
 const ICON: Record<string, IconName> = {
   'file.read': 'file', 'tool.called': 'tool', 'knowledge.loaded': 'book', 'connector.queried': 'link', 'connector.write_requested': 'link', 'connector.write_decided': 'link', 'question.asked': 'help', 'question.answered': 'user',
@@ -59,7 +61,12 @@ export function summarize(e: EventDto, result?: EventDto): { text: string; tone?
     case 'question.answered': return { text: p.dismissed ? '提问已忽略' : `用户回答：${s(p.text)}` };
     // Pause requests are recorded as interventions by the engine (kind `pause`, fixed English text).
     case 'intervention.received': return { text: p.kind === 'pause' ? '用户请求暂停：进行中的会话做完这一轮后停下' : `用户介入（${INTERVENTION[s(p.kind)] ?? s(p.kind)}）：${s(p.text)}`, tone: 'accent' };
-    case 'intervention.applied': return { text: `介入已生效：${(p.applied as string[] | undefined)?.join('、') ?? ''}` };
+    case 'intervention.applied':
+      if (p.kind === 'switch_model_later') {
+        const to = p.to as { provider?: string; model?: string } | undefined;
+        return { text: `介入已生效：之后原本使用 ${(p.from as string[] | undefined)?.join('、') ?? ''} 的步骤改用 ${s(to?.provider)}/${s(to?.model)}` };
+      }
+      return { text: `介入已生效：${(p.applied as string[] | undefined)?.join('、') ?? ''}` };
     case 'finding.submitted': return { text: `提交发现${p.count !== undefined ? ` ${s(p.count)} 条` : ''}${p.titles ? ` ${s(p.titles)}` : ''}` };
     case 'finding.challenged': return { text: `对抗复核：${p.confirmation === 'pending' ? '转为待确认' : p.confirmation === 'refuted' ? '反驳，转为待确认' : '维持'}（置信度 ${s(p.confidence_delta ?? p.delta ?? '')}）` };
     case 'finding.reconciled': return { text: `归并：提交 ${s(p.sent)}，正式 ${s(p.canonical)}，证据不足 ${s(p.insufficient)}，合并 ${s(p.merged)}，丢弃 ${s(p.dropped)}` };
@@ -74,15 +81,15 @@ export function summarize(e: EventDto, result?: EventDto): { text: string; tone?
     case 'model.fallback': {
       const to = p.to as { provider?: string; model?: string } | undefined;
       const why = FALLBACK_REASON[s(p.reason)] ?? s(p.reason);
-      return p.degraded
-        ? { text: `${s(p.from)} ${why}；备用模型也在交叉审查组里，不替换，这一路记为交叉审查降级`, tone: 'warn' }
-        : { text: `${s(p.from)} ${why}，切换到备用模型 ${s(to?.provider)}/${s(to?.model)} 重试`, tone: 'warn' };
+      if (p.degraded) return { text: `${s(p.from)} ${why}；备用模型也在交叉审查组里，不替换，这一路记为交叉审查降级`, tone: 'warn' };
+      if (p.later) return { text: `之后的步骤：${s(p.from)} 按你的选择改用 ${s(to?.provider)}/${s(to?.model)}`, tone: 'warn' };
+      return { text: `${s(p.from)} ${why}，${p.manual ? '按你的选择切换到' : '切换到备用模型'} ${s(to?.provider)}/${s(to?.model)} 重试`, tone: 'warn' };
     }
     case 'contract.violation': return { text: `输出不合规（${s(p.tool)}）：${(p.issues as string[] | undefined)?.slice(0, 2).join('；') ?? ''}`, tone: 'warn' };
     case 'security.blocked': return { text: `安全拦截 ${s(p.tool)}：${s(p.reason)}`, tone: 'warn' };
     case 'injection_suspected': return { text: `疑似指令内容 ${s(p.repo)}:${s(p.path)}（${s(p.signal)}），已作为数据处理`, tone: 'warn' };
     case 'gate.evaluated': return { text: `完成闸门：${label(AUDIT_STATUS, p.status)}${(p.partial_reasons as string[] | undefined)?.length ? ` · ${(p.partial_reasons as string[]).map((r) => label(PARTIAL_REASON, r)).join('、')}` : ''}`, tone: p.status === 'completed' ? 'ok' : 'warn' };
-    case 'budget.exhausted': return { text: `预算不足，建议追加 ${fmt.n(Number(p.suggested_top_up_tokens ?? 0))} tokens`, tone: 'warn' };
+    case 'budget.exhausted': return { text: `预算不足，建议追加 ${fmt.tokens(Number(p.suggested_top_up_tokens ?? 0))} tokens`, tone: 'warn' };
     case 'budget.topped_up': return { text: `已追加预算` };
     case 'plan.generated': return { text: '审计计划已生成' };
     case 'plan.confirmed': return { text: '计划已确认，策略已冻结' };
@@ -144,7 +151,7 @@ function NoteRow({ e }: { e: EventDto }) {
         <span className={cx(A.noteText, !open && long && A.noteClamp)}>{text}</span>
         <span className={A.noteMeta}>
           {long && <button className={A.noteMore} onClick={() => setOpen(!open)}>{open ? '收起' : '展开'}</button>}
-          {e.payload.truncated ? '（已截断）' : ''}{tokens > 0 ? `${fmt.compact(tokens)} tokens` : ''}
+          {e.payload.truncated ? '（已截断）' : ''}{tokens > 0 ? `${fmt.tokens(tokens)} tokens` : ''}
         </span>
       </div>
     </li>
@@ -214,8 +221,6 @@ function CandidateList({ cands }: { cands: ExecCandidateDto[] }) {
   );
 }
 
-/** A sub-agent's part of a step: its events nested under a node where it first appears. */
-interface SubNode { kind: 'sub'; id: string; started: EventDto | null; finished: EventDto | null; events: EventDto[] }
 type Node = { kind: 'event'; e: EventDto } | SubNode;
 interface Group { key: string; step: StepDto | null; events: EventDto[]; nodes: Node[] }
 const sessionOf = (e: EventDto) => e.payload.session as { id: string; role: 'main' | 'task'; parent?: string } | undefined;
@@ -223,6 +228,8 @@ const sessionOf = (e: EventDto) => e.payload.session as { id: string; role: 'mai
 function SubAgentNode({ n, results, onVuln }: { n: SubNode; results: Map<string, EventDto>; onVuln: (vid: string) => void }) {
   const f = n.finished?.payload;
   const running = !n.finished;
+  const noSlot = subNoSlot(n);
+  const goal = subGoal(n);
   const [open, setOpen] = useState<boolean | null>(null);
   const expanded = open ?? running;
   const turns = n.events.filter((e) => e.type === 'agent.note').length;
@@ -231,8 +238,9 @@ function SubAgentNode({ n, results, onVuln }: { n: SubNode; results: Map<string,
       <button className={A.subHead} aria-expanded={expanded} onClick={() => setOpen(!expanded)}>
         <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} />
         <Icon name="layers" size={13} />
-        <span className={A.subGoal}>子 Agent：{s(n.started?.payload.goal) || '（目标未记录）'}</span>
+        <span className={A.subGoal}>子 Agent：{goal || '（目标未记录）'}</span>
         {running ? <Badge tone="accent" dot pulse>进行中</Badge>
+          : noSlot ? <Badge tone="warn">未开始</Badge>
           : <Badge tone={f?.status === 'completed' ? 'ok' : 'warn'}>{f?.status === 'completed' ? '完成' : label(SESSION_STATUS, f?.status)}</Badge>}
         <span className={ui.faint} style={{ marginLeft: 'auto', fontSize: 12 }}>
           {[f?.turns !== undefined ? `${s(f.turns)} 回合` : turns ? `${turns} 回合` : '', took(f?.ms), n.events.filter((e) => e.type === 'tool.called').length ? `${n.events.filter((e) => e.type === 'tool.called').length} 次调用` : ''].filter(Boolean).join(' · ')}
@@ -295,15 +303,14 @@ export function TrajectoryView({ aid, audit, types, q, step, onTypes, onQ, onVul
       if (sess?.role === 'task') {
         let n = cur.nodes.find((x): x is SubNode => x.kind === 'sub' && x.id === sess.id);
         if (!n) { n = { kind: 'sub', id: sess.id, started: null, finished: null, events: [] }; cur.nodes.push(n); }
-        if (e.type === 'task.started') n.started = e;
-        else if (e.type === 'task.finished') n.finished = e;
-        else n.events.push(e);
+        addSubEvent(n, e);
       } else cur.nodes.push({ kind: 'event', e });
     }
     return { groups, results };
   }, [traj.data, steps.data, system, types.length, repo]);
 
-  const shown = segment ? groups.filter((g) => g.step && execSteps.get(g.step.id)?.segment === segment) : groups;
+  const members = segment ? segmentMembers(segment, execution.data?.segments ?? []) : [];
+  const shown = segment ? groups.filter((g) => g.step && members.includes(execSteps.get(g.step.id)?.segment ?? '')) : groups;
   const repos = audit?.repos ?? [];
   const linked = (findings.data ?? []).filter((f) => f.state === 'canonical');
   return (
@@ -356,14 +363,14 @@ export function TrajectoryView({ aid, audit, types, q, step, onTypes, onQ, onVul
                 <button className={A.groupHead} onClick={() => setCollapsed({ ...collapsed, [g.key]: !isCollapsed })} aria-expanded={!isCollapsed}>
                   <Icon name={isCollapsed ? 'chevronRight' : 'chevronDown'} size={14} />
                   {/* The cross-repository system model is a profile step with lineage SYSTEM. */}
-                  <b>{st ? (st.kind === 'profile' && st.lineage === 'SYSTEM' ? '系统理解（跨仓库）' : STEP_KIND[st.kind] ?? st.kind) : '审计'}</b>
+                  <b>{st ? (st.kind === 'profile' && st.lineage === 'SYSTEM' ? '系统理解（跨仓库）' : stepLabel(st.kind, st.lineage)) : '审计'}</b>
                   {st?.lineage && st.lineage !== 'SYSTEM' && <span className={ui.mono} style={{ fontSize: 11, color: 'var(--text-3)' }}>{st.lineage}</span>}
                   {ex && ex.candidates.length > 0 && <span className={A.groupHeadline}>{ex.subject ? `${ex.subject} · ` : ''}{headline(ex.candidates)} · 已有结论 {ex.candidates.filter((c) => !['pending', 'investigating'].includes(c.status)).length}/{ex.candidates.length}</span>}
                   {ex && !ex.candidates.length && (ex.subject || ex.repo) && <span className={A.groupHeadline}>{ex.subject ?? ex.repo}</span>}
                   {ex?.fallback && <ModelBadge s={ex} />}
                   {st && <Badge tone={st.status === 'succeeded' ? 'ok' : st.status === 'failed' ? 'danger' : st.status === 'running' ? 'accent' : 'neutral'} dot pulse={st.status === 'running'}>{STEP_STATUS[st.status]}</Badge>}
                   <span className={ui.faint} style={{ marginLeft: 'auto', fontSize: 12 }}>
-                    {[secs > 0 ? fmt.duration(secs) : '', calls ? `${calls} 次调用` : `${g.events.length} 项`, st && st.tokensIn + st.tokensOut > 0 ? `${fmt.compact(st.tokensIn + st.tokensOut)} tokens` : ''].filter(Boolean).join(' · ')}
+                    {[secs > 0 ? fmt.duration(secs) : '', calls ? `${calls} 次调用` : `${g.events.length} 项`, st && st.tokensIn + st.tokensOut > 0 ? `${fmt.tokens(st.tokensIn + st.tokensOut)} tokens` : ''].filter(Boolean).join(' · ')}
                   </span>
                 </button>
                 {!isCollapsed && ex && ex.candidates.length > 0 && <CandidateList key={`${g.key}-c`} cands={ex.candidates} />}

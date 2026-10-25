@@ -1,5 +1,6 @@
 // Generic step execution: idempotent creation, attempts, error-class retry,
 // budget reservation, checkpoint at step boundary (output + derived rows in one transaction).
+import { ModelNotConfiguredError } from '@xiezhi/agent';
 import { DEFAULT_PROMPTS_HASH, withPrompts, type FrozenKnowledge } from '@xiezhi/knowledge';
 import { canonicalJson, newId, RETRYABLE_ERROR_CLASSES, sha256Hex, type ErrorClass, type ModelRef, type StepKind } from '@xiezhi/contracts';
 import type { Store } from '@xiezhi/store';
@@ -98,7 +99,17 @@ export async function runStep(
   let current = getStep(store, step.id);
   if (current.status === 'succeeded') return 'succeeded';
   if (current.status === 'failed' || current.status === 'skipped' || current.status === 'cancelled') return current.status === 'failed' ? 'failed' : current.status === 'skipped' ? 'skipped' : 'cancelled';
+  // A refused cross lane waits for a person for the rest of this run; it is not tried again here.
+  if (current.status === 'interrupted' && rt.filteredLanes.has(step.id)) return 'failed';
   if (current.status === 'interrupted' || current.status === 'retry_wait' || current.status === 'blocked_budget') transitionStep(store, step.id, 'ready');
+  // The user chose another model for every later step that would run on a refused one — recorded like the
+  // manual switch, so the trajectory shows it and a resumed run keeps it.
+  const later = rt.fallbacks.has(step.id) ? null : rt.laterSwitch(current);
+  if (later) {
+    rt.fallbacks.set(step.id, later.to);
+    store.update('step', { id: step.id }, { model: later.to.model, provider: later.to.provider });
+    rt.event('model.fallback', { from: later.from, to: later.to, reason: 'CONTENT_FILTERED', manual: true, later: true }, step.id);
+  }
 
   while (true) {
     current = getStep(store, step.id);
@@ -124,7 +135,8 @@ export async function runStep(
     const now = Date.now();
     store.tx(() => {
       transitionStep(store, step.id, 'running', { attempt, started_at: now, error_class: null, error_summary: null });
-      store.insert('step_attempt', { step_id: step.id, attempt, started_at: now });
+      const model = rt.stepModel(current);
+      store.insert('step_attempt', { step_id: step.id, attempt, started_at: now, model: model ? `${model.provider}/${model.model}` : null });
       store.appendEvent(rt.auditId, 'step.attempt_started', { kind: current.kind, attempt, model: current.model }, step.id);
     });
     if (estimate > 0) rt.reserve(step.id, estimate);
@@ -143,7 +155,8 @@ export async function runStep(
       });
       return 'succeeded';
     } catch (e) {
-      errorClass = e instanceof StepError ? e.errorClass : 'INTERNAL';
+      // A model the configuration no longer has is a model error (fallback, “模型不可用”), not a defect.
+      errorClass = e instanceof StepError ? e.errorClass : e instanceof ModelNotConfiguredError ? 'MODEL_NOT_FOUND' : 'INTERNAL';
       message = (e as Error).message;
       // An internal error is a defect: keep where it happened (11 steps failed with only “Cannot read
       // properties of undefined (reading 'length')” and nothing to locate it).
@@ -221,7 +234,8 @@ export async function runStep(
     }
     if (errorClass === 'CONTENT_FILTERED') {
       const fb = rt.fallbacks.has(step.id) ? null : rt.fallbackFor(current);
-      const from = current.provider && current.model ? `${current.provider}/${current.model}` : null;
+      const refused = rt.stepModel(current);
+      const from = refused ? `${refused.provider}/${refused.model}` : null;
       if (fb && !fb.degraded) {
         rt.fallbacks.set(step.id, fb.to);
         rt.event('error', { error_class: errorClass, step_kind: current.kind, attempt, summary: message.slice(0, 500), retrying: true, ...(stack ? { stack } : {}) }, step.id);
@@ -230,6 +244,17 @@ export async function runStep(
         transitionStep(store, step.id, 'retry_wait', { retry_at: Date.now(), error_class: errorClass, error_summary: message.slice(0, 500) });
         transitionStep(store, step.id, 'ready');
         continue;
+      }
+      // A cross-checked lane goes on without a pause while another lane of the same task is not refused —
+      // the stage continues with that lane's result and the refused one waits for a person (a later run tries it
+      // again; at the end it is skipped). Only when every lane of the task was refused does the audit pause.
+      // The strategy may ask to pause at the first refused lane instead (`multiModel.onFiltered: 'pause'`).
+      const lanes = crossLanes(store, current);
+      if (lanes && !(lanes.length && lanes.every(isFilteredLane)) && rt.strategy.multiModel.onFiltered !== 'pause') {
+        rt.event('error', { error_class: errorClass, step_kind: current.kind, attempt, summary: message.slice(0, 500), retrying: false, cross_lane: true, ...(stack ? { stack } : {}) }, step.id);
+        transitionStep(store, step.id, 'interrupted', { ended_at: Date.now(), error_class: errorClass, error_summary: message.slice(0, 500) }, 'content filtered; the other cross models go on');
+        rt.filteredLanes.add(step.id);
+        return 'failed';
       }
       rt.event('error', { error_class: errorClass, step_kind: current.kind, attempt, summary: message.slice(0, 500), retrying: false, needs_user: true, ...(stack ? { stack } : {}) }, step.id);
       transitionStep(store, step.id, 'interrupted', { ended_at: Date.now(), error_class: errorClass, error_summary: message.slice(0, 500) }, 'content filtered; waiting for the user');
@@ -292,6 +317,33 @@ async function serviceCheck(rt: AuditRuntime, model: ModelRef, stepId: string): 
     return r.ok;
   })().finally(() => { rt.serviceChecking = null; });
   return rt.serviceChecking;
+}
+
+/**
+ * The other lanes of a cross-checked task: the same task on the other cross models — lineage `…-M<n>-…`
+ * (threat model, hunt batch, domain round, lead session, hypothesis batch), or a review vote on the same finding.
+ * Lanes not created yet are missing (their model has not started the task). Null when the step is not a cross lane.
+ */
+export function crossLanes(store: Store, step: StepRow): StepRow[] | null {
+  const m = /^(.*)-M(\d+)-(.*)$/.exec(step.lineage_id ?? '');
+  if (m) {
+    const same = new RegExp(`^${escapeRe(m[1]!)}-M\\d+-${escapeRe(m[3]!)}$`);
+    return store.all<StepRow>('SELECT * FROM step WHERE audit_id = ? AND kind = ? AND id <> ?', step.audit_id, step.kind, step.id).filter((r) => same.test(r.lineage_id ?? ''));
+  }
+  const input = JSON.parse(step.input || '{}') as { findingId?: string; vote?: boolean };
+  if (step.kind === 'challenge' && input.vote && input.findingId) {
+    return store.all<StepRow>(`SELECT * FROM step WHERE audit_id = ? AND kind = 'challenge' AND id <> ? AND json_extract(input, '$.findingId') = ? AND json_extract(input, '$.vote') = 1`, step.audit_id, step.id, input.findingId);
+  }
+  return null;
+}
+
+/** A lane the content filter refused and that waits for a person. */
+export function isFilteredLane(s: Pick<StepRow, 'status' | 'error_class'>): boolean {
+  return s.status === 'interrupted' && s.error_class === 'CONTENT_FILTERED';
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** A fallback model the step can still switch to (once per step; a degraded one does not replace the model). */

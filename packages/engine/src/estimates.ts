@@ -38,7 +38,15 @@ export interface PlanEstimate {
 /** Domains assumed before the threat model has planned them, and the expert planning estimate. */
 export const PLANNED_DOMAINS = 6;
 export const DOMAIN_EXPERT_TOKENS = 600_000;
-/** share of the findings expected to be critical / high and not pending, and a light review's cost. */
+/**
+ * A full audit's experts grow with the repository — all domains together use about this much
+ * per candidate (a project with ~820 candidates, four deep runs: 60k–100k; the lead dispatches up to 6 rounds per domain).
+ * DOMAIN_EXPERT_TOKENS stays the floor of one expert. The expert sessions are not calibrated, so this is the estimate.
+ */
+export const EXPERT_TOKENS_PER_CANDIDATE = 70_000;
+/** The plan's profile estimate grows with the repository too (the same runs: 2.6–10.4M, ~6.8k per candidate). */
+export const PROFILE_TOKENS_PER_CANDIDATE = 6_000;
+/** Share of the findings expected to be critical / high and not pending, and a light review's cost. */
 const FULL_REVIEW_SHARE = 0.4;
 const LIGHT_REVIEW_COST = 0.4;
 /** Share of the candidates ⑨ is expected to complete after the experts (they concluded about half in test runs). */
@@ -109,10 +117,11 @@ interface EstimateContext {
  */
 const NONE: Record<string, number> = {};
 const STAGE_ESTIMATORS: Partial<Record<StageId, (c: EstimateContext) => Record<string, number>>> = {
-  understand: ({ strategy, opts, times }) => ({
+  understand: ({ strategy, n, opts, times }) => ({
     // profile runs in the full pipeline unless it is the minimal one (a cache hit costs nothing; the estimate stays conservative).
-    ...(strategy.models.triage || strategy.stages.adversarialReview || strategy.tools.coverageCompare ? { profile: estimateStep('profile') } : {}),
-    // risk-hypothesis-first (one threat model); the domain hunt plans from the threat model too.
+    // Sized by the candidates; the step's own 25k base (its budget reservation) is unchanged.
+    ...(strategy.models.triage || strategy.stages.adversarialReview || strategy.tools.coverageCompare ? { profile: Math.max(estimateStep('profile'), n * PROFILE_TOKENS_PER_CANDIDATE) } : {}),
+    // Risk-hypothesis-first (one threat model); the domain hunt plans from the threat model too.
     ...(opts.domainHunt || strategy.stages.threatHypotheses ? { 'threat-model': estimateStep('threat-model') * times('threat') } : {}),
   }),
   triage: ({ strategy, n }) => (strategy.models.triage ? { triage: estimateStep('triage', Math.ceil(n / 50)) } : NONE),
@@ -156,7 +165,7 @@ export function estimatePipeline(strategy: AuditStrategy, candidates: number, ex
   // 3-file change was planned at 3.1–5.7M and used 0.5M).
   const expert = opts.incremental
     ? Math.min(DOMAIN_EXPERT_TOKENS, Math.max(MIN_INCREMENTAL_EXPERT, Math.ceil(estimateStep('hunt', n) * ratio('hunt', strategy.models.audit))))
-    : DOMAIN_EXPERT_TOKENS;
+    : Math.max(DOMAIN_EXPERT_TOKENS, Math.ceil((n * EXPERT_TOKENS_PER_CANDIDATE) / PLANNED_DOMAINS));
   const lead = opts.incremental ? Math.min(LEAD_SESSION_TOKENS, expert) : LEAD_SESSION_TOKENS;
   const ctx: EstimateContext = { strategy, n, expectedFindings, opts, times, expert, lead };
   const byStep: Record<string, number> = {};
@@ -178,6 +187,8 @@ export function estimatePipeline(strategy: AuditStrategy, candidates: number, ex
   // The expert constant is not a per-candidate estimate and the expert sessions are not calibrated
   // (`calibrate: false`); the per-candidate hunt ratio (3–10× on real models) would inflate it as much.
   if (opts.domainHunt) delete models.hunt;
+  // The sized profile entry is not on the profile step's base, so that step's history would scale it twice.
+  delete models.profile;
   for (const [k, v] of Object.entries(byStep)) {
     const m = models[k];
     if (m) byStep[k] = Math.ceil(v * ratio(m[0], m[1]));

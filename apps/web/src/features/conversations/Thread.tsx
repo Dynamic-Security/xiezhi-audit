@@ -2,18 +2,20 @@
 // messages with text, tool calls and cards in the order they happened; edit-and-resend of the last message;
 // a draft mode where the conversation is created by the first message; the current page object as a
 // removable reference above the composer.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ConversationDto, MentionCandidateDto, MentionDto, MessageDto, ToolCallDto } from '@xiezhi/contracts';
 import { api } from '../../shared/api/client';
 import { qk, useConversation, useMentionCandidates, useMessages } from '../../shared/api/queries';
 import { AUDIT_STATUS, SEVERITY, fmt, toolArgsFromJson, toolLabel } from '../../shared/format/messages';
 import { Markdown } from '../../shared/markdown/Markdown';
-import { Badge, Button, ErrorState, Icon, Loading, cx, ui, useAutoGrow, useStickToBottom, useToast } from '../../shared/ui';
+import { Badge, Button, ErrorState, Icon, Loading, cx, ui, useAutoGrow, useDismiss, useStickToBottom, useToast } from '../../shared/ui';
 import { DraftDialog } from '../knowledge/drafts';
+import { PendingFiles, SentFiles, attachmentsBody, readFiles, type PendingFile } from './attachments';
 import { ConversationCard } from './Cards';
 import { replyParts } from './parts';
 import { useReplyStream } from './useReply';
+import { QuickStart, nextPlaceholder } from './Templates';
 import C from './conversations.module.css';
 
 export const KIND_LABEL: Record<string, string> = { project: '项目', repo: '仓库', audit: '审计', vuln: '漏洞', skill: '知识' };
@@ -57,8 +59,9 @@ function ToolCalls({ calls }: { calls: ToolCallDto[] }) {
   );
 }
 
-function AssistantMessage({ m, liveMid, onOpen, onEnd, onRegenerate, onSave }: {
+function AssistantMessage({ m, liveMid, onOpen, onEnd, onRegenerate, onSave, footerAuditId }: {
   m: MessageDto; liveMid: string | null; onOpen?: ((p: string) => void) | undefined; onEnd: () => void; onRegenerate: (m: MessageDto) => void; onSave: (m: MessageDto) => void;
+  footerAuditId?: string | undefined;
 }) {
   const live = liveMid === m.id && m.status === 'streaming';
   const stream = useReplyStream(live ? m.id : null, onEnd);
@@ -67,8 +70,9 @@ function AssistantMessage({ m, liveMid, onOpen, onEnd, onRegenerate, onSave }: {
   const refresh = () => void qc.invalidateQueries({ queryKey: qk.messages(m.conversationId) });
   const parts = useMemo(() => replyParts(
     text, live ? stream.toolCalls : m.toolCalls,
-    live ? stream.cards.map((c) => ({ id: c.cardId, kind: c.kind, state: c.state, data: c.data, textOffset: c.textOffset })) : m.cards,
-  ), [text, live, stream.toolCalls, stream.cards, m.toolCalls, m.cards]);
+    (live ? stream.cards.map((c) => ({ id: c.cardId, kind: c.kind, state: c.state, data: c.data, textOffset: c.textOffset })) : m.cards)
+      .filter((c) => !(c.kind === 'audit_status' && footerAuditId && c.data.auditId === footerAuditId)),
+  ), [text, live, stream.toolCalls, stream.cards, m.toolCalls, m.cards, footerAuditId]);
   const lastText = parts.map((p) => p.kind).lastIndexOf('text');
   const streamingNow = live && stream.status !== 'done';
   return (
@@ -89,7 +93,7 @@ function AssistantMessage({ m, liveMid, onOpen, onEnd, onRegenerate, onSave }: {
         {!live && m.status !== 'streaming' && (
           <div className={C.meta}>
             {m.model && <span>{m.model}</span>}
-            {m.tokens > 0 && <span>{fmt.n(m.tokens)} tokens</span>}
+            {m.tokens > 0 && <span>{fmt.tokens(m.tokens)} tokens</span>}
             {m.finishReason === 'user_stopped' && <Badge>已停止</Badge>}
             {m.finishReason === 'max_turns' && <Badge tone="warn">达到轮数上限</Badge>}
             {m.content && <button className={C.metaBtn} onClick={() => void navigator.clipboard?.writeText(m.content)}><Icon name="copy" size={12} />复制</button>}
@@ -114,7 +118,7 @@ function UserMessage({ m, editable, onEdit }: { m: MessageDto; editable: boolean
           <textarea ref={ref} className={C.input} value={text} aria-label="编辑消息" onChange={(e) => setText(e.target.value)} autoFocus />
           <div className={ui.row} style={{ justifyContent: 'flex-end' }}>
             <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setText(m.content); }}>取消</Button>
-            <Button size="sm" variant="primary" loading={busy} disabled={!text.trim()} onClick={async () => { setBusy(true); if (await onEdit(m, text.trim())) setEditing(false); setBusy(false); }}>保存并重新回复</Button>
+            <Button size="sm" variant="primary" loading={busy} disabled={!text.trim() && !m.attachments.length} onClick={async () => { setBusy(true); if (await onEdit(m, text.trim())) setEditing(false); setBusy(false); }}>保存并重新回复</Button>
           </div>
         </div>
       </div>
@@ -122,7 +126,8 @@ function UserMessage({ m, editable, onEdit }: { m: MessageDto; editable: boolean
   }
   return (
     <div className={C.user}>
-      <div className={C.userBubble}>{m.content}</div>
+      <SentFiles messageId={m.id} files={m.attachments} />
+      {m.content && <div className={C.userBubble}>{m.content}</div>}
       <MentionChips mentions={m.mentions} />
       {editable && <button className={C.metaBtn} onClick={() => setEditing(true)}><Icon name="edit" size={12} />编辑</button>}
     </div>
@@ -140,15 +145,25 @@ function candidateDetail(c: MentionCandidateDto): string {
 const POPOVER_MAX = 280;
 
 /** Composer with @-mention autocomplete; `context` is the current page object, sent unless removed. */
-export function Composer({ text, setText, disabled, streaming, onSend, onStop, context, placeholder, hint = true, autoFocus, top }: {
-  text: string; setText: (t: string) => void; disabled?: boolean; streaming?: boolean; onSend: (text: string, mentions: MentionDto[]) => Promise<boolean>;
+export function Composer({ text, setText, disabled, streaming, onSend, onStop, context, placeholder, hint = true, autoFocus, top, fillSignal }: {
+  text: string; setText: (t: string) => void; disabled?: boolean; streaming?: boolean; onSend: (text: string, mentions: MentionDto[], files: PendingFile[]) => Promise<boolean>;
   onStop?: () => void; context?: MentionDto | null; placeholder?: string | undefined; hint?: boolean; autoFocus?: boolean; top?: ReactNode;
+  /** Changes when a template filled the text: focus the box and select its first 【…】. */
+  fillSignal?: number;
 }) {
   const [mentions, setMentions] = useState<MentionDto[]>([]);
   const [dropContext, setDropContext] = useState(false);
   const [query, setQuery] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState<PendingFile[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [dropping, setDropping] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
+  const menuRef = useDismiss(menu, useCallback(() => setMenu(false), []));
+  const toast = useToast();
   const ref = useAutoGrow(text);
   const cands = useMentionCandidates(query ?? '', query !== null);
   const options = cands.data ?? [];
@@ -158,9 +173,22 @@ export function Composer({ text, setText, disabled, streaming, onSend, onStop, c
   const [below, setBelow] = useState(false);
   const open = query !== null;
   useLayoutEffect(() => {
-    if (open) setBelow((wrap.current?.getBoundingClientRect().top ?? 0) < POPOVER_MAX + 80);
-  }, [open]);
+    if (open || menu) setBelow((wrap.current?.getBoundingClientRect().top ?? 0) < POPOVER_MAX + 80);
+  }, [open, menu]);
   useEffect(() => { setDropContext(false); }, [context?.kind, context?.id]);
+  const selectPlaceholder = (from: number): boolean => {
+    const el = ref.current;
+    const at = el ? nextPlaceholder(el.value, from) : null;
+    if (!el || !at) return false;
+    el.focus();
+    el.setSelectionRange(at[0], at[1]);
+    return true;
+  };
+  useEffect(() => {
+    if (!fillSignal) return;
+    // After React wrote the template into the box.
+    requestAnimationFrame(() => { if (!selectPlaceholder(0)) ref.current?.focus(); });
+  }, [fillSignal]);
   const withContext = context && !dropContext && !mentions.some((m) => m.kind === context.kind && m.id === context.id) ? [context, ...mentions] : mentions;
 
   const onChange = (v: string) => {
@@ -178,14 +206,43 @@ export function Composer({ text, setText, disabled, streaming, onSend, onStop, c
     setQuery(null);
     el?.focus();
   };
+  // Pasted, dropped or chosen files; read one batch at a time so the limits count what is already added.
+  const addFiles = async (list: File[], fromFolder = false) => {
+    if (!list.length || adding) return;
+    setAdding(true);
+    try {
+      const r = await readFiles(list, files, fromFolder);
+      setFiles((cur) => [...cur, ...r.added]);
+      if (r.errors.length) toast.error(new Error(r.errors.slice(0, 3).join('；') + (r.errors.length > 3 ? ` 等 ${r.errors.length} 个文件` : '')), '无法添加');
+      if (r.skipped.length) toast.info(`已跳过 ${r.skipped.length} 个文件（不是图片或文本，或超出大小与数量限制）`);
+      if (fromFolder && !r.added.length && !r.skipped.length) toast.info('文件夹中没有可添加的文件');
+    } finally { setAdding(false); ref.current?.focus(); }
+  };
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = [...e.clipboardData.files];
+    if (!pasted.length) return;
+    // Copying from an editor may carry both text and a picture of it: the text is what was meant.
+    if (e.clipboardData.getData('text/plain')) return;
+    e.preventDefault();
+    void addFiles(pasted);
+  };
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    setDropping(false);
+    if (!e.dataTransfer.files.length) return;
+    e.preventDefault();
+    void addFiles([...e.dataTransfer.files]);
+  };
+  const pickFiles = () => { setMenu(false); fileInput.current?.click(); };
+  const canSend = !!text.trim() || files.length > 0;
   const send = async () => {
-    if (!text.trim() || busy || streaming) return;
+    if (!canSend || busy || streaming || adding) return;
     setBusy(true);
-    const ok = await onSend(text.trim(), withContext);
+    const ok = await onSend(text.trim(), withContext, files);
     setBusy(false);
-    if (ok) { setText(''); setMentions([]); }
+    if (ok) { setText(''); setMentions([]); setFiles([]); }
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'u') { e.preventDefault(); pickFiles(); return; }
     if (query !== null && options.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => (a + 1) % options.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => (a - 1 + options.length) % options.length); return; }
@@ -193,6 +250,8 @@ export function Composer({ text, setText, disabled, streaming, onSend, onStop, c
       if (e.key === 'Escape') { setQuery(null); return; }
     }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
+    // Template placeholders: Tab selects the next 【…】 still to fill in.
+    if (e.key === 'Tab' && !e.shiftKey && selectPlaceholder(e.currentTarget.selectionEnd)) e.preventDefault();
   };
   return (
     <div className={C.composer} ref={wrap}>
@@ -206,45 +265,53 @@ export function Composer({ text, setText, disabled, streaming, onSend, onStop, c
         </div>
       )}
       {top}
-      <div className={C.box}>
+      <div className={cx(C.box, dropping && C.boxDrop)} onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDropping(true); } }} onDragLeave={() => setDropping(false)} onDrop={onDrop}>
+        <PendingFiles files={files} onRemove={(k) => setFiles(files.filter((f) => f.key !== k))} />
         <MentionChips mentions={withContext} onRemove={(m) => { if (context && m.kind === context.kind && m.id === context.id) setDropContext(true); else setMentions(mentions.filter((x) => !(x.kind === m.kind && x.id === m.id))); }} />
         <textarea ref={ref} className={C.input} rows={2} value={text} disabled={disabled} aria-label="输入消息" autoFocus={autoFocus}
           placeholder={placeholder ?? '输入问题，@ 引用项目、审计、漏洞或知识。例如：@V-3 这个越权在网关层有没有防护？'}
-          onChange={(e) => onChange(e.target.value)} onKeyDown={onKey} />
+          onChange={(e) => onChange(e.target.value)} onKeyDown={onKey} onPaste={onPaste} />
         <div className={C.boxBar}>
+          <div className={C.addWrap} ref={menuRef}>
+            <Button size="sm" variant="ghost" icon="plus" aria-label="添加文件" aria-haspopup="menu" aria-expanded={menu} loading={adding} disabled={disabled} onClick={() => setMenu(!menu)} />
+            {menu && (
+              <div className={cx(C.addMenu, below && C.addMenuBelow)} role="menu">
+                <button role="menuitem" className={C.option} onClick={pickFiles}><Icon name="paperclip" size={14} />添加文件或图片<span className={C.addKey}>{/Mac/.test(navigator.platform) ? '⌘U' : 'Ctrl+U'}</span></button>
+                <button role="menuitem" className={C.option} onClick={() => { setMenu(false); folderInput.current?.click(); }}><Icon name="folder" size={14} />添加文件夹</button>
+              </div>
+            )}
+            <input ref={fileInput} type="file" multiple hidden aria-label="选择文件" onChange={(e) => { void addFiles([...(e.target.files ?? [])]); e.target.value = ''; }} />
+            <input ref={folderInput} type="file" multiple hidden aria-label="选择文件夹" {...{ webkitdirectory: '' }} onChange={(e) => { void addFiles([...(e.target.files ?? [])], true); e.target.value = ''; }} />
+          </div>
           <Button size="sm" variant="ghost" aria-label="插入引用" onClick={() => { setText(`${text}${text && !text.endsWith(' ') ? ' ' : ''}@`); setQuery(''); ref.current?.focus(); }}>@ 引用</Button>
           <span className={ui.grow} />
           {streaming && onStop
             ? <Button size="sm" icon="stop" onClick={onStop}>停止</Button>
-            : <Button size="sm" variant="primary" icon="send" aria-label="发送" disabled={disabled || !text.trim()} loading={busy} onClick={() => void send()} />}
+            : <Button size="sm" variant="primary" icon="send" aria-label="发送" disabled={disabled || !canSend || adding} loading={busy} onClick={() => void send()} />}
         </div>
       </div>
-      {hint && <div className={C.hint}>Enter 发送 · Shift+Enter 换行 · 你在对话中的输入是指令；AI 只能给出建议卡片，由你确认后才会生效</div>}
+      {hint && <div className={C.hint}>Enter 发送 · Shift+Enter 换行 · 可粘贴或拖入图片与文本文件 · 你在对话中的输入是指令；AI 只能给出建议卡片，由你确认后才会生效</div>}
     </div>
   );
 }
-
-const SUGGESTIONS = [
-  '这个漏洞在什么条件下可以被利用？',
-  '帮我审计 @',
-  '复验所有标为已修复的漏洞',
-  '排查所有项目是否受 CVE-2022-22947 影响',
-];
 
 /**
  * A conversation, or a draft when `cid` is null: the first message creates the conversation (with `context`
  * as its reference) and `onCreated` reports it. `onOpen` shows a vulnerability or audit next to the thread.
  */
-export function ConversationThread({ cid, onCreated, onOpen, context, compact, footer, ensureConversation, onBeforeSend, composerTop, placeholder, suggestions = SUGGESTIONS }: {
+export function ConversationThread({ cid, onCreated, onOpen, context, compact, footer, footerAuditId, ensureConversation, onBeforeSend, composerTop, placeholder, suggestions }: {
   cid: string | null; onCreated?: (c: ConversationDto) => void; onOpen?: (panel: string) => void; context?: MentionDto | null; compact?: boolean;
   /** Shown at the end of the thread (e.g. the live audit card). */
   footer?: ReactNode;
+  /** The audit the footer shows: its status cards in the replies are not shown again (the conversation it was started from). */
+  footerAuditId?: string;
   /** How a draft gets its conversation (default: a new one); e.g. the audit's bound conversation. */
   ensureConversation?: () => Promise<ConversationDto>;
   /** Handle a message before it is sent as a conversation message (e.g. an intervention in a running audit). */
   onBeforeSend?: (text: string) => Promise<'handled' | 'continue' | 'failed'>;
   composerTop?: ReactNode;
   placeholder?: string;
+  /** Suggested questions of an empty thread; without them the quick-start templates are shown. */
   suggestions?: string[];
 }) {
   const conv = useConversation(cid ?? '', { enabled: !!cid });
@@ -255,6 +322,7 @@ export function ConversationThread({ cid, onCreated, onOpen, context, compact, f
   const [liveMid, setLiveMid] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [text, setText] = useState('');
+  const [fill, setFill] = useState(0);
 
   const items = useMemo(() => (cid ? msgs.data?.items ?? [] : []), [cid, msgs.data]);
   const streamingMsg = items.find((m) => m.role === 'assistant' && m.status === 'streaming');
@@ -273,9 +341,10 @@ export function ConversationThread({ cid, onCreated, onOpen, context, compact, f
   }, [qc, cid]);
   const onEnd = useCallback(() => { setLiveMid(null); refresh(); }, [refresh]);
 
-  const send = async (content: string, mentions: MentionDto[]) => {
+  const send = async (content: string, mentions: MentionDto[], files: PendingFile[]) => {
     try {
-      if (onBeforeSend) {
+      // A message with files is always a conversation message: an intervention carries text only.
+      if (onBeforeSend && !files.length) {
         const r = await onBeforeSend(content);
         if (r !== 'continue') { toBottom(); return r === 'handled'; }
       }
@@ -289,7 +358,10 @@ export function ConversationThread({ cid, onCreated, onOpen, context, compact, f
         id = c.id;
         onCreated?.(c);
       }
-      const r = await api.post<{ assistantMessageId: string }>(`/conversations/${id}/messages`, { clientMessageId: clientId(), content, mentions: mentions.map((m) => ({ kind: m.kind, id: m.id })) });
+      const r = await api.post<{ assistantMessageId: string }>(`/conversations/${id}/messages`, {
+        clientMessageId: clientId(), content, mentions: mentions.map((m) => ({ kind: m.kind, id: m.id })),
+        ...attachmentsBody(files),
+      });
       setLiveMid(r.assistantMessageId);
       toBottom();
       await qc.invalidateQueries({ queryKey: qk.messages(id) });
@@ -337,15 +409,17 @@ export function ConversationThread({ cid, onCreated, onOpen, context, compact, f
             <div className={C.empty}>
               <div className={C.avatar} style={{ width: 44, height: 44, borderRadius: 12 }}><Icon name="sparkle" size={20} /></div>
               <b style={{ fontSize: compact ? 16 : 18 }}>有什么可以帮你？</b>
-              <p className={ui.muted} style={{ fontSize: 13 }}>追问漏洞结论、让 AI 查代码取证、发起审计 / 复验 / 风险排查，或配置连接器。输入 @ 引用对象。</p>
-              <div className={C.suggest}>
-                {suggestions.map((s) => <button key={s} className={ui.chip} onClick={() => setText(s)}>{s}</button>)}
-              </div>
+              <p className={ui.muted} style={{ fontSize: 13 }}>{suggestions
+                ? '追问漏洞结论、让 AI 查代码取证、发起审计 / 复验 / 风险排查，或配置连接器。输入 @ 引用对象。'
+                : '创建项目、威胁建模、发起审计 / 复验 / 风险排查、追问漏洞，或配置连接器。选一个模板开始，填好【】中的内容（Tab 跳到下一处）；AI 给出卡片，由你确认后才执行。'}</p>
+              {suggestions
+                ? <div className={C.suggest}>{suggestions.map((s) => <button key={s} className={ui.chip} onClick={() => setText(s)}>{s}</button>)}</div>
+                : <QuickStart context={context ?? null} onPick={(t) => { setText(t); setFill((n) => n + 1); }} />}
             </div>
           )}
           {items.map((m) => m.role === 'user'
             ? <UserMessage key={m.id} m={m} editable={m.id === lastUser?.id && !liveMid} onEdit={edit} />
-            : <AssistantMessage key={m.id} m={m} liveMid={liveMid} onOpen={onOpen} onEnd={onEnd} onRegenerate={(x) => void regenerate(x)} onSave={(x) => void save(x)} />)}
+            : <AssistantMessage key={m.id} m={m} liveMid={liveMid} onOpen={onOpen} onEnd={onEnd} onRegenerate={(x) => void regenerate(x)} onSave={(x) => void save(x)} footerAuditId={footerAuditId} />)}
           {footer}
         </div>
       </div>
@@ -355,7 +429,7 @@ export function ConversationThread({ cid, onCreated, onOpen, context, compact, f
         </div>
       )}
       <div className={C.composerWrap}>
-        <Composer text={text} setText={setText} disabled={!!cid && !c} streaming={!!liveMid} onSend={send} onStop={() => void stop()} top={composerTop} placeholder={placeholder} context={context && !c?.mentions.some((m) => m.kind === context.kind && m.id === context.id) ? context : null} hint={!compact} />
+        <Composer text={text} setText={setText} fillSignal={fill} disabled={!!cid && !c} streaming={!!liveMid} onSend={send} onStop={() => void stop()} top={composerTop} placeholder={placeholder} context={context && !c?.mentions.some((m) => m.kind === context.kind && m.id === context.id) ? context : null} hint={!compact} />
       </div>
       <DraftDialog id={draft} onClose={() => setDraft(null)} />
     </div>

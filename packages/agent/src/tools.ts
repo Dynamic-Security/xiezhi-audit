@@ -14,7 +14,7 @@ import type { AuditTool } from './session.js';
 export interface ToolHooks {
   onInjection?: (source: { repo: string; path: string }, signals: InjectionSignal[]) => void;
   onSkillRead?: (r: { name: string; layer: string; sha256: string; file: string; tokens: number; reason: string }) => void;
-  onQuestion?: (q: { question: string; blocking: boolean; context?: string }) => string;
+  onQuestion?: (q: { question: string; blocking: boolean; context?: string; options?: string[] }) => string;
   onCrossRepo?: (summary: { repo: string; peers: number; unresolved: boolean; missing: string[] }) => void;
 }
 

@@ -8,7 +8,7 @@ import { boundaryDeclaration, newNonce, startSession, wrapUntrusted, type AuditT
 import type { Store } from '@xiezhi/store';
 import { autoAuditable, indexLanguagesFor, recordAutoAuditable } from './auditable.js';
 import { costMicros } from './estimates.js';
-import { listRepositories, type RepositoryRow } from './services.js';
+import { languagesBySize, listRepositories, type RepositoryRow } from './services.js';
 import { recordSnapshot, snapshotSource } from './sources.js';
 import { rebuildTopology, serviceMappings } from './topology.js';
 import { P } from '@xiezhi/knowledge';
@@ -149,7 +149,7 @@ async function runAnalysisInner(deps: AnalysisDeps, projectId: string, analysisI
         }
         prepared.push({ repo, rootHash: m.rootHash, root: snap.root, signals, connections, connectionsRef });
         store.update('repository', { id: repo.id }, {
-          languages: Object.keys(m.stats.byLang).sort(), modules: signals.modules,
+          languages: languagesBySize(m.stats.byLang), modules: signals.modules,
         });
         recordAutoAuditable(store, repo.id, autoAuditable(view));
       } catch (e) {

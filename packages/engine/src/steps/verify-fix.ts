@@ -153,6 +153,8 @@ export async function verifyFixStep(rt: AuditRuntime, vulnId: string, ctx: Attem
   const outcome = await rt.session({
     stepId: ctx.stepId, attempt: ctx.attempt, kind: 'verify-fix', phase: 'verify', model: stageModel(rt.strategy, 'verify')!, signal: ctx.signal,
     prompt, submitTools: [submit], requiredSubmits: ['submit_reverify'], maxTurns: rt.strategy.limits.maxTurnsPerStep,
+    // The vulnerability's repository is the session's (tools and unqualified evidence default to it).
+    repo: repo.name,
     extraTools: [diffTool, ...(detail.reasoning ? [{
       name: 'finding_reasoning', kind: 'read' as const, parameters: Type.Object({}, { additionalProperties: false }),
       description: P('tool.finding_reasoning.reverify'),

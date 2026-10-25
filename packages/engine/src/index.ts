@@ -14,7 +14,7 @@ export { loadState, type CognitiveState as CognitiveStateSnapshot } from './cogn
 export { addRevision, evidenceComplete, createVulnerability, decideSuspectedMatch, revisionCardProgress, settleRevisionCards, type MatchPlan, type RevisionCardProgress } from './vulns.js';
 export { compareAudits, type AuditComparison } from './rerun.js';
 export { mergeVulnerabilities, splitVulnerability, undoIdentityOp, mergedChildren, type IdentityOp } from './identity-ops.js';
-export { withConnectors, createProject, getProject, listProjects, addRepository, addArchiveRepository, addGitRepository, cleanFileName, countLanguages, remoteAppError, remoteProblem, scanLocalLanguages, scanLocalJsBackend, scanLocalRustBackend, auditableFrom, gitCredentialFor, parseRemote, remoteAuth, listRepositories, modelDefaults, chatModelOf, latestBaseline, strategyOverrideIssues, type ProjectRow, type RepositoryRow, type AddRepositoryInput, type SourceMeta, type CreateAuditInput, type CreateReverifyInput, type CreateBackfillInput } from './services.js';
+export { withConnectors, createProject, getProject, listProjects, addRepository, addArchiveRepository, addGitRepository, cleanFileName, countLanguages, remoteAppError, remoteProblem, scanLocalLanguages, scanLocalJsBackend, scanLocalRustBackend, auditableFrom, languagesBySize, gitCredentialFor, parseRemote, remoteAuth, listRepositories, modelDefaults, chatModelOf, latestBaseline, strategyOverrideIssues, type ProjectRow, type RepositoryRow, type AddRepositoryInput, type SourceMeta, type CreateAuditInput, type CreateReverifyInput, type CreateBackfillInput } from './services.js';
 export { getAudit, getStep, listSteps, transitionAudit, AUDIT_TRANSITIONS, STEP_TRANSITIONS, USER_SKIPPED_MARK, type AuditRow, type StepRow } from './state.js';
 export { fpSink, fpEntry, normSymbol, enrichFinding, confidenceTier, verifyCodeRef } from './identity.js';
 export { checkEvidence, MISSING_CHECK_CATEGORIES, type EvidenceCheck } from './evidence.js';
@@ -54,6 +54,7 @@ export {
   type ConversationRow, type MessageRow, type CardRow, type MessageEvent, type ResolvedMention,
 } from './conversation/records.js';
 export { codeScope, mentionedProjects } from './conversation/context.js';
+export { messageAttachments, type StoredAttachment } from './conversation/attachments.js';
 export { auditCoverage, coverageItemDetail, hypothesisCoverage, moduleOf, mergeBackfill, type HypothesisCoverage, type RepoCoverage } from './coverage.js';
 export { LspPool, lspServer, languageOf, lspLanguageOfLang, LSP_SERVER_NAMES, LSP_IDLE_MS } from './lsp.js';
 export { decideHypothesis, effectiveIndex, HypothesisError, isBusinessRule, listHypotheses, businessRulesOn, logicEntries, type HypothesisRow } from './business.js';
@@ -64,7 +65,7 @@ export { buildConnectorAccess } from './connector-access.js';
 export { discoverMcpConfigs, importMcpConfig, resolveCommand, MCP_IMPORT_SOURCES, type McpImportCandidate, type McpImportInput, type McpImportSecret, type McpImportSource } from './connector-import.js';
 export * as queries from './queries/index.js';
 export {
-  acknowledgeSourceInjection, addThreatSource, createThreatModel, deleteThreatModel, deleteThreatSource, getThreatModelRow, reorderThreatSources,
+  acknowledgeSourceInjection, addThreatSource, createThreatModel, createThreatModelWithSources, deleteThreatModel, deleteThreatSource, getThreatModelRow, reorderThreatSources,
   setThreatRiskStatus, setThreatRiskStatuses, updateThreatModel, updateThreatSource,
   type AddThreatSourceInput, type RiskDecision, type ThreatModelRow, type ThreatRiskRow, type ThreatSourceRow,
 } from './threat-models.js';
@@ -76,7 +77,8 @@ export type { DraftAuditRow } from './plan-edit.js';
 export { DomainPlanError, domainPlanView, editDomainPlan, pendingLateDomains } from './domain-plan.js';
 export { accessChecks, accessGroups, groupOf, MAX_ACCESS_CHECKS, type AccessCheck, type AccessGroup } from './access.js';
 export { dependencyCheck, dependencyInventory, dependencyRecord, MAX_OSV_QUERIES, OSV_ECOSYSTEM, OSV_OPERATION, parseAdvisories, type DependencyHit, type DependencyRecord } from './dependencies.js';
-export { DOMAIN_ROUNDS, FALLBACK_DOMAINS, HYPOTHESES_PER_ROUND, domainHuntOn, pruneExpertSubmission, domainLeads, gapFillOn, planDomains, type PlannedDomain } from './domains.js';
+export { DOMAIN_ROUNDS, FALLBACK_DOMAINS, HYPOTHESES_PER_ROUND, domainHuntOn, domainRepo, hypothesisOwner, pruneExpertSubmission, domainLeads, gapFillOn, planDomains, type PlannedDomain } from './domains.js';
+export { clampRefEnds, withRefRepo } from './runtime.js';
 export { addFact, reviseFact, retractFact, importFacts, getFact, activeFacts, planContextQuestions, factFromAnswer, type FactRow, type FactInput, type FactScope, type ImportResult } from './facts.js';
 export { projectGateways, entryExposure, entryPathOf, serviceNames, syncGatewayFacts, type GatewayReport, type EntryExposure, type ExposureRoute } from './gateway.js';
 export { effectiveTrust, setInternalTrust, responsibilityCard, cardText, classifyFinding, trustAction, INTERNAL_TRUST, TRUST_LABEL, type InternalTrust, type EffectiveTrust, type Boundary, type ResponsibilityCard } from './boundary.js';

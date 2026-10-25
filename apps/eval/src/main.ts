@@ -23,7 +23,7 @@ import type { Partition } from './schema.js';
 
 const HELP = `xiezhi eval — 评测基准工具
 
-用法：xiezhi eval <命令> [参数]        （基准目录：--bench DIR 或环境变量 XIEZHI_AUDIT_BENCH；基准数据在独立仓库）
+用法：xiezhi eval <命令> [参数]        （基准目录：--bench DIR 或环境变量 XIEZHI_AUDIT_BENCH；基准数据需自备，安装包不附带）
 
   validate [--bench DIR] [--json] [--offline] 校验 manifest / 标注 / 裁定 schema、root_hash、分区与防泄漏规则
   hash <目录 | https-URL@commit>...           计算源码的 root_hash（与产品快照一致），用于填写 manifest
@@ -58,10 +58,10 @@ function treeOptions(v: { 'sources-cache'?: string | undefined; offline?: boolea
 
 const print = (s: string) => process.stdout.write(s + '\n');
 
-/** The benchmark lives in its own repository: `--bench DIR` or `XIEZHI_AUDIT_BENCH`. */
+/** The benchmark is a directory of its own, not shipped with the package: `--bench DIR` or `XIEZHI_AUDIT_BENCH`. */
 function benchDir(v: string | undefined): string {
   const dir = v ?? process.env.XIEZHI_AUDIT_BENCH;
-  if (!dir) throw new EvalError('USAGE', '需要基准目录：--bench <目录> 或环境变量 XIEZHI_AUDIT_BENCH（基准数据在独立仓库 AI-Code-Audit-Bench）');
+  if (!dir) throw new EvalError('USAGE', '需要基准目录：--bench <目录> 或环境变量 XIEZHI_AUDIT_BENCH（基准数据需自备，安装包不附带）');
   return resolve(dir);
 }
 

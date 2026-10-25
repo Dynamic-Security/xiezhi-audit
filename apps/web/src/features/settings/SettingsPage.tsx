@@ -3,19 +3,19 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import type { AuditStrategy, GitCredentialDto, ModelRef, ProviderDto } from '@xiezhi/contracts';
+import type { AuditStrategy, GitCredentialDto, ModelRef, ProviderDeleted, ProviderDto, ToolsConfig } from '@xiezhi/contracts';
 import { api, ApiError } from '../../shared/api/client';
 import { useDiagnostics, useGeneral, useGitCredentials, useKnowledge, useModelSettings, useProviders, useSceneDefaults } from '../../shared/api/queries';
 import { askNotifyPermission, notifyEnabled, notifyPermission, setNotifyEnabled } from '../../shared/notify';
 import { fmt } from '../../shared/format/messages';
-import { Badge, Button, ConfirmDialog, Dialog, EmptyState, Field, Icon, Loading, Segmented, cx, ui, useToast, TokenCostHint } from '../../shared/ui';
+import { Badge, Button, ConfirmDialog, Dialog, EmptyState, Field, Icon, InfoTip, Loading, Segmented, cx, ui, useToast, TokenCostHint, TokenInput } from '../../shared/ui';
 import { PageLayout, Section, TopBar } from '../layout/AppShell';
 import S from './settings.module.css';
 import { ConnectorsSection } from './ConnectorsSection';
-import { ProviderDialog } from './ProviderDialog';
-import { AnalysisOptions, analysisChoiceOf, analysisOverride, type AnalysisChoice } from '../audits/AnalysisOptions';
+import { CONFIDENTIAL_HELP, ProviderDialog } from './ProviderDialog';
+import { analysisChoiceOf, analysisOverride, type AnalysisChoice } from '../audits/AnalysisOptions';
 import { BudgetStagesEditor, LimitsEditor, limitsOf, limitsOverride, type LimitsValue, type StageShares } from '../audits/BudgetLimits';
-import { CHAT_LABEL, CrossModelsEditor, STAGE_LABEL, StageHelp, type GuideStage } from '../audits/StageModels';
+import { CHAT_LABEL, CrossModelsEditor, STAGE_LABEL, StageHelp, StageModelsEditor, stageModelsOf, type GuideStage } from '../audits/StageModels';
 import SM from '../audits/stagemodels.module.css';
 
 const SECTIONS = [
@@ -48,10 +48,10 @@ const withThinking = (m: ModelRef, t: string): ModelRef => { const { thinking: _
 function ModelRoles() {
   const ms = useModelSettings();
   const providers = useProviders();
-  const [draft, setDraft] = useState<{ defaultModel: ModelRef | null; stageModels: StageMap; fallbackModel: ModelRef | null; confidentialModels: string[] } | null>(null);
+  const [draft, setDraft] = useState<{ defaultModel: ModelRef | null; stageModels: StageMap; fallbackModel: ModelRef | null } | null>(null);
   const qc = useQueryClient();
   const toast = useToast();
-  useEffect(() => { if (ms.data) setDraft({ defaultModel: ms.data.defaultModel, stageModels: { ...ms.data.stageModels }, fallbackModel: ms.data.fallbackModel, confidentialModels: [...(ms.data.confidentialModels ?? [])] }); }, [ms.data]);
+  useEffect(() => { if (ms.data) setDraft({ defaultModel: ms.data.defaultModel, stageModels: { ...ms.data.stageModels }, fallbackModel: ms.data.fallbackModel }); }, [ms.data]);
   if (!draft || !ms.data) return <Loading />;
   const all = (providers.data ?? []).flatMap((p) => p.models.map((m) => `${p.id}/${m.id}`));
   const options = (cur: ModelRef | null | undefined) => [...(!cur || all.includes(refKey(cur)) ? [] : [refKey(cur)]), ...all].map((m) => <option key={m} value={m}>{m}{all.includes(m) ? '' : '（未配置）'}</option>);
@@ -123,17 +123,6 @@ function ModelRoles() {
           </table>
         </div>
       </Field>
-      <Field group label="可接收机密事实的模型" hint="标为“机密”的企业事实只发给这里勾选的模型（例如内网部署的模型）；其他模型的会话里不出现这些事实，外发记录中计为“未发送的机密事实”">
-        <div className={cx(ui.row, ui.wrap)} style={{ gap: 12 }}>
-          {all.length === 0 ? <span className={ui.faint}>还没有配置模型</span> : all.map((k) => (
-            <label key={k} className={ui.row} style={{ gap: 6 }}>
-              <input type="checkbox" aria-label={`机密事实 ${k}`} checked={draft.confidentialModels.includes(k)}
-                onChange={(e) => setDraft({ ...draft, confidentialModels: e.target.checked ? [...draft.confidentialModels, k] : draft.confidentialModels.filter((x) => x !== k) })} />
-              <span className={ui.mono}>{k}</span>
-            </label>
-          ))}
-        </div>
-      </Field>
       <div><Button variant="primary" onClick={() => void save()}>保存</Button></div>
     </div>
   );
@@ -157,6 +146,21 @@ function ModelsSection() {
     setTesting(null);
     await qc.invalidateQueries({ queryKey: ['settings', 'providers'] });
   };
+  /** A provider still named by model settings is deleted together with those references, listed first. */
+  const remove = async () => {
+    const p = del!;
+    try {
+      const r = await api.del<ProviderDeleted>(`/settings/model-providers/${encodeURIComponent(p.id)}${p.references.length ? '?clearReferences=1' : ''}`);
+      toast.ok(r.cleared.length ? `已删除，并清除了 ${r.cleared.length} 处引用` : '已删除');
+      setDel(null);
+    } catch (e) {
+      // References appeared since the list was loaded: show them and ask again.
+      const refs = e instanceof ApiError && e.code === 'PROVIDER_IN_USE' ? e.details?.references : undefined;
+      if (Array.isArray(refs)) setDel({ ...p, references: refs as ProviderDto['references'] });
+      else { toast.error(e); setDel(null); }
+    }
+    await qc.invalidateQueries({ queryKey: ['settings'] });
+  };
   return (
     <>
       <Section title="模型服务" actions={<Button variant="primary" size="sm" icon="plus" onClick={() => setEdit('new')}>添加</Button>}>
@@ -170,7 +174,10 @@ function ModelsSection() {
                   <div className={ui.row}><b>{p.id}</b><Badge>{p.api}</Badge>{p.apiKey.configured ? <Badge tone="ok">密钥已配置{p.apiKey.hint ? ` · ${p.apiKey.hint}` : ''}</Badge> : <Badge tone="warn">未配置密钥</Badge>}
                     {p.lastTest && <Badge tone={p.lastTest.ok ? 'ok' : 'danger'}>{p.lastTest.ok ? '连通' : '不通'} · {fmt.time(p.lastTest.at)}</Badge>}</div>
                   <div className={cx(ui.mono, ui.faint)} style={{ fontSize: 12, marginTop: 4 }}>{p.baseUrl}</div>
-                  <div className={cx(ui.row, ui.wrap)} style={{ marginTop: 8, gap: 4 }}>{p.models.map((m) => <span key={m.id} className={ui.chip} style={{ cursor: 'default', height: 24 }}>{m.id}</span>)}</div>
+                  <div className={cx(ui.row, ui.wrap)} style={{ marginTop: 8, gap: 4 }}>{p.models.map((m) => (
+                    <span key={m.id} className={ui.chip} style={{ cursor: 'default', height: 24, gap: 6, whiteSpace: 'nowrap' }}>{m.id}{m.confidential && <Badge tone="warn"><Icon name="lock" size={11} />可接收机密</Badge>}</span>
+                  ))}
+                  {p.models.some((m) => m.confidential) && <InfoTip label="可接收机密事实的含义">{CONFIDENTIAL_HELP}</InfoTip>}</div>
                 </div>
                 <div className={ui.row} style={{ alignSelf: 'flex-start' }}>
                   <Button size="sm" icon="search" onClick={() => { setProbeOnOpen(true); setEdit(p); }}>探测可用模型</Button>
@@ -185,8 +192,17 @@ function ModelsSection() {
       </Section>
       <Section title="模型配置"><ModelRoles /></Section>
       <ProviderDialog open={edit !== null} existing={edit === 'new' ? null : edit} autoProbe={probeOnOpen} onClose={() => { setEdit(null); setProbeOnOpen(false); }} />
-      <ConfirmDialog open={!!del} onClose={() => setDel(null)} title={`删除模型服务 ${del?.id ?? ''}`} level="destructive" confirmText="删除"
-        onConfirm={async () => { try { await api.del(`/settings/model-providers/${del!.id}`); toast.ok('已删除'); } catch (e) { toast.error(e); } setDel(null); await qc.invalidateQueries({ queryKey: ['settings'] }); }}>
+      <ConfirmDialog open={!!del} onClose={() => setDel(null)} title={`删除模型服务 ${del?.id ?? ''}`} level="destructive" confirmText={del?.references.length ? '清除引用并删除' : '删除'}
+        onConfirm={() => void remove()}>
+        {!!del?.references.length && (
+          <div className={ui.stack} style={{ gap: 6, marginBottom: 12 }}>
+            <div>以下设置仍在使用该服务的模型，删除时会一并清除：</div>
+            <ul aria-label="引用该服务的设置" style={{ margin: 0, paddingLeft: 20 }}>
+              {del.references.map((r) => <li key={`${r.setting}:${r.model}`}>{r.label}：<span className={ui.mono}>{r.model}</span></li>)}
+            </ul>
+            <div>清除后默认模型、备用模型变为未设置，各阶段改为跟随默认模型，多模型交叉不足 2 个模型时关闭。如需换成其他模型，请取消后先在下方“模型配置”中修改。</div>
+          </div>
+        )}
         删除后配置文件中的密钥一并清除。已冻结策略的审计不受影响，但无法再继续运行使用该服务的审计。
       </ConfirmDialog>
     </>
@@ -203,7 +219,9 @@ function DefaultsSection() {
   const [tokens, setTokens] = useState<number>(0);
   const [minutes, setMinutes] = useState<number>(0);
   const [challenge, setChallenge] = useState(true);
-  const [analyses, setAnalyses] = useState<AnalysisChoice>({ threatHypotheses: false });
+  const [analyses, setAnalyses] = useState<AnalysisChoice>({ threatHypotheses: true });
+  /** Deep exploration's full mode (unchecked = on demand). */
+  const [explore, setExplore] = useState(false);
   const [sessions, setSessions] = useState(4);
   const [exclude, setExclude] = useState('');
   const [limits, setLimits] = useState<LimitsValue | null>(null);
@@ -218,7 +236,7 @@ function DefaultsSection() {
   useEffect(() => {
     if (!eff) return;
     setTokens(eff.budget.tokens); setMinutes(Math.round(eff.budget.durationSec / 60)); setChallenge(eff.stages.adversarialReview); setSessions(eff.concurrency.sessions);
-    setAnalyses(analysisChoiceOf(scene, eff.stages));
+    setAnalyses(analysisChoiceOf(scene, eff.stages)); setExplore(eff.stages.deepExplore);
     setExclude(eff.scope.exclude.join('\n')); setLimits(limitsOf(eff)); setShares(scene === 'full' || scene === 'incremental' ? { ...eff.budget.stages } : null);
     setStageLimits(eff.budget.stageLimits !== false && Object.keys(eff.budget.stages ?? {}).length > 0);
     setCross(structuredClone(eff.multiModel));
@@ -234,28 +252,36 @@ function DefaultsSection() {
     const override = {
       ...prev,
       ...(cross && JSON.stringify(cross) !== JSON.stringify(eff.multiModel) ? { multiModel: cross } : {}),
-      budget: { tokens, durationSec: minutes * 60, ...(shares && Object.keys(shares).length ? { stages: shares } : {}), ...(shares ? { stageLimits } : {}) }, stages: { adversarialReview: challenge, ...(a?.stages ?? {}) }, concurrency: { sessions },
+      budget: { tokens, durationSec: minutes * 60, ...(shares && Object.keys(shares).length ? { stages: shares } : {}), ...(shares ? { stageLimits } : {}) }, stages: { adversarialReview: challenge, ...(a?.stages ?? {}), ...(optional && explore ? { deepExplore: true } : {}) }, concurrency: { sessions },
       scope: { exclude: exclude.split('\n').map((x) => x.trim()).filter(Boolean) },
       // candidate limit for full and incremental; coverage targets and shortfall handling for full.
       ...(lim.limits ? { limits: lim.limits } : {}), ...(scene === 'full' && lim.coverageTarget ? { coverageTarget: lim.coverageTarget } : {}),
     };
     try { await api.put(`/settings/scene-defaults/${scene}`, { override, revision: sd.data!.revision }); toast.ok(`已保存，之后新建的${SCENE_TABS.find((x) => x.key === scene)!.label}会使用这些默认值`); } catch (e) { toast.error(e); }
+    // The providers list shows which settings name each provider.
     await qc.invalidateQueries({ queryKey: ['settings', 'scene'] });
+    await qc.invalidateQueries({ queryKey: ['settings', 'providers'] });
   };
   return (
     <Section title="任务创建默认值">
       <div className={cx(ui.card, ui.cardPad, ui.stack)} style={{ gap: 16 }}>
         <Segmented value={scene} onChange={(s) => setScene(s)} items={SCENE_TABS.map((x) => ({ key: x.key, label: x.label }))} />
-        <p className={ui.muted} style={{ fontSize: 13 }}>按场景分别设置。审计启动时，这些默认值与发起时的调整合并后冻结；之后修改设置不影响已开始的审计。各阶段模型在“模型”里设置。</p>
+        <p className={ui.muted} style={{ fontSize: 13 }}>按场景分别设置。审计启动时，这些默认值与发起时的调整合并后冻结；之后修改设置不影响已开始的审计。各阶段用哪个模型在“模型”里设置。</p>
         <div className={S.grid3}>
-          <Field label="token 预算" hint={<TokenCostHint tokens={tokens} model={eff?.models.audit} />}><input className={ui.input} type="number" min={1000} step={10000} value={tokens} onChange={(e) => setTokens(Number(e.target.value))} /></Field>
+          <Field label="token 预算" hint={<TokenCostHint tokens={tokens} model={eff?.models.audit} />}><TokenInput value={tokens} onChange={(t) => setTokens(t || 0)} /></Field>
           <Field label="时长上限（分钟）"><input className={ui.input} type="number" min={1} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} /></Field>
           <Field label="并行会话数"><input className={ui.input} type="number" min={1} max={16} value={sessions} onChange={(e) => setSessions(Number(e.target.value))} /></Field>
         </div>
         {shares && <BudgetStagesEditor scene={scene} value={shares} total={tokens} onChange={setShares} on={stageLimits} onToggle={setStageLimits} />}
         {optional && limits && <LimitsEditor value={limits} onChange={setLimits} coverage={scene === 'full'} />}
-        <label className={ui.checkbox}><input type="checkbox" checked={challenge} onChange={(e) => setChallenge(e.target.checked)} />对抗复核：汇总后对每个正式发现做一次独立的反向论证</label>
-        {optional && <AnalysisOptions value={analyses} onChange={setAnalyses} maxCandidates={eff.limits.maxCandidates} />}
+        <Field group label="审计流程与模型" hint="勾选本场景默认运行的可选阶段；点 ⓘ 查看各阶段的作用">
+          <StageModelsEditor scene={scene} value={stageModelsOf(eff)} models={allModels} globalFallback={null} readOnly
+            switches={optional ? {
+              value: { challenge, logic: analyses.threatHypotheses, explore },
+              onChange: (v) => { setChallenge(v.challenge); setAnalyses({ threatHypotheses: v.logic }); setExplore(v.explore); },
+              maxCandidates: limits?.maxCandidates ?? eff.limits.maxCandidates, rounds: eff.limits.maxRounds,
+            } : undefined} />
+        </Field>
         {optional && cross && (
           <Field group label="多模型交叉" hint="各阶段用哪个模型在 设置 › 模型 中配置">
             <CrossModelsEditor value={cross} onChange={setCross} models={allModels} hunt={eff.models.audit} />
@@ -284,14 +310,21 @@ function NotificationSetting() {
   );
 }
 
+/** Labels of the external tool paths, every key of contracts ToolsConfig (web imports contract types only). */
+const TOOL_LABEL: Record<keyof ToolsConfig, string> = {
+  rgPath: 'ripgrep（rg）', gitPath: 'git', goplsPath: 'Go 语言服务器（gopls）', jdtlsPath: 'Java 语言服务器（jdtls）', goPath: 'Go 工具链（go）',
+  pyrightPath: 'Python 语言服务器（pyright-langserver）', tsLspPath: 'TypeScript 语言服务器（typescript-language-server）', nodePath: 'node（语言服务器运行需要）',
+};
+const TOOL_PATH_KEYS = Object.keys(TOOL_LABEL) as (keyof ToolsConfig)[];
+
 function GeneralSection() {
   const g = useGeneral();
-  const [draft, setDraft] = useState<{ audits: number; modelRequests: number; pauseGraceSec: number; snippets: boolean; localRoots: boolean; reportSkill: string; pricing: string } | null>(null);
+  const [draft, setDraft] = useState<{ audits: number; modelRequests: number; pauseGraceSec: number; snippets: boolean; localRoots: boolean; reportSkill: string; pricing: string; tools: Record<string, string> } | null>(null);
   const skills = useKnowledge();
   const qc = useQueryClient();
   const toast = useToast();
   useEffect(() => {
-    if (g.data) setDraft({ audits: g.data.concurrency.audits, modelRequests: g.data.concurrency.modelRequests, pauseGraceSec: g.data.engine.pauseGraceSec, snippets: g.data.export.snippets, localRoots: g.data.export.localRoots, reportSkill: g.data.export.reportSkill ?? '', pricing: JSON.stringify(g.data.pricing, null, 2) });
+    if (g.data) setDraft({ audits: g.data.concurrency.audits, modelRequests: g.data.concurrency.modelRequests, pauseGraceSec: g.data.engine.pauseGraceSec, snippets: g.data.export.snippets, localRoots: g.data.export.localRoots, reportSkill: g.data.export.reportSkill ?? '', pricing: JSON.stringify(g.data.pricing, null, 2), tools: { ...g.data.tools } as Record<string, string> });
   }, [g.data]);
   if (!draft || !g.data) return <Loading />;
   const save = async () => {
@@ -301,6 +334,8 @@ function GeneralSection() {
       await api.patch('/settings/general', {
         revision: g.data!.revision, concurrency: { audits: draft.audits, modelRequests: draft.modelRequests }, engine: { pauseGraceSec: draft.pauseGraceSec },
         export: { snippets: draft.snippets, localRoots: draft.localRoots, reportSkill: draft.reportSkill || null }, pricing,
+        // An emptied field clears the path: the tool is looked up on PATH again.
+        tools: Object.fromEntries(TOOL_PATH_KEYS.map((k) => [k, draft.tools[k]?.trim() || null])),
       });
       toast.ok('已保存');
     } catch (e) { toast.error(e); }
@@ -325,6 +360,16 @@ function GeneralSection() {
         <Field label="价格表（每百万 token）" hint={'键为 provider/model，例如 {"gw/openai/gpt-6-luna": {"currency": "USD", "input": 1.25, "output": 10}}；缺失的模型成本显示为“未知”'}>
           <textarea className={cx(ui.textarea, ui.mono)} style={{ minHeight: 140 }} value={draft.pricing} onChange={(e) => setDraft({ ...draft, pricing: e.target.value })} />
         </Field>
+        <fieldset className={ui.stack} style={{ gap: 8, border: 0, padding: 0, margin: 0 }}>
+          <legend className={ui.faint} style={{ fontSize: 12, marginBottom: 8 }}>外部工具路径：留空时在 PATH 中查找；语言服务器找不到时符号查询退化为 tree-sitter（系统诊断里可以看到是否找到）</legend>
+          <div className={S.grid3}>
+            {TOOL_PATH_KEYS.map((k) => (
+              <Field key={k} label={TOOL_LABEL[k]}>
+                <input className={cx(ui.input, ui.mono)} placeholder="自动查找" value={draft.tools[k] ?? ''} onChange={(e) => setDraft({ ...draft, tools: { ...draft.tools, [k]: e.target.value } })} />
+              </Field>
+            ))}
+          </div>
+        </fieldset>
         <div><Button variant="primary" onClick={() => void save()}>保存</Button></div>
       </div>
       <NotificationSetting />

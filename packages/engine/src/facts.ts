@@ -6,7 +6,7 @@
 // what the project already knows: business / architecture knowledge, the topology (also architecture imports), the
 // requirement-risk decisions, the profile's assumptions.
 import { join } from 'node:path';
-import { AppError, isDeferAnswer, newId, type FactSensitivity, type FactSource, type FactTopic, type FactTrust } from '@xiezhi/contracts';
+import { AppError, answerOptions, contextItem, isDeferAnswer, newId, type ContextItem, type FactSensitivity, type FactSource, type FactTopic, type FactTrust } from '@xiezhi/contracts';
 import { effectiveSkills, scanLayer } from '@xiezhi/knowledge';
 import { fromJson, type Store } from '@xiezhi/store';
 import { getProject } from './services.js';
@@ -195,11 +195,12 @@ export function importFacts(store: Store, projectId: string): ImportResult {
 // ---- plan questions ----------------------------------------------------------------------------------------------
 
 /** The plan's "context needed" items as questions whose answers become facts (non-blocking; once per text). */
-export function planContextQuestions(store: Store, auditId: string, stepId: string | null, items: string[]): number {
+export function planContextQuestions(store: Store, auditId: string, stepId: string | null, items: (ContextItem | string)[]): number {
   let n = 0;
-  for (const text of items.map((t) => t.trim()).filter(Boolean).slice(0, 20)) {
+  for (const item of items.map(contextItem).map((c) => ({ ...c, question: c.question.trim() })).filter((c) => c.question).slice(0, 20)) {
+    const text = item.question;
     if (store.get('SELECT 1 FROM question WHERE audit_id = ? AND text = ? AND as_fact = 1', auditId, text)) continue;
-    store.insert('question', { id: newId('question'), audit_id: auditId, step_id: stepId, text, blocking: 0, status: 'open', as_fact: 1 });
+    store.insert('question', { id: newId('question'), audit_id: auditId, step_id: stepId, text, blocking: 0, status: 'open', as_fact: 1, options: answerOptions(item.options) });
     n++;
   }
   return n;

@@ -11,6 +11,8 @@ checklist:
     vuln_class: cors
     title: WebSocket 升级校验 Origin
     check: 升级时是否校验 Origin（gorilla Upgrader.CheckOrigin、Spring setAllowedOrigins / setAllowedOriginPatterns、Node verifyClient）；恒为 true、允许 *、缺少 Origin 头或未配置允许列表时放行即为跨站 WebSocket 劫持。CheckOrigin 为 nil 时 gorilla 默认同源检查，不是问题。没有 WebSocket / 长连接时为不适用。
+    locate:
+      grep: ['CheckOrigin|verifyClient|setAllowedOrigin|handleUpgrade|on\(.upgrade.', 'new WebSocketServer|WebSocketGateway|socket\.io|EventSource']
   - id: ws-session-revalidate
     vuln_class: authn
     title: 长连接期间会话失效生效
@@ -23,6 +25,8 @@ checklist:
     vuln_class: authn
     title: 会话 Cookie 属性
     check: 会话 / 记住我 Cookie 是否设置 HttpOnly、Secure、SameSite；是否把敏感数据明文放在 Cookie。不使用 Cookie 维持会话时为不适用。
+    locate:
+      grep: ['Set-Cookie|\.cookie\(|setCookie|addCookie|SetCookie|cookie\.Secure|SameSite']
   - id: session-lifecycle
     vuln_class: authn
     title: 会话固定与失效
@@ -34,11 +38,27 @@ checklist:
   - id: token-randomness
     vuln_class: authn
     title: 令牌生成与比较
-    check: 记住我、分享令牌、API Key、重置令牌是否用安全随机数生成（不可预测），校验时是否恒定时间比较。
+    check: 记住我、分享令牌、API Key、重置令牌、CSRF 令牌是否用安全随机数生成（不可预测）；校验令牌、API Key 签名、HMAC 时是否恒定时间比较（timingSafeEqual / hmac.Equal / MessageDigest.isEqual / compare_digest）。用 === / == / equals 比较秘密值即为问题。每个搜索命中的比较位置都要看。
+    locate:
+      grep: ['(received|provided|given|expected|computed|actual)\w*\s*(===|!==|==|!=)\s*\w*(expected|computed|received|provided|signature|digest|hmac)', '(signature|signed|hmac|digest|secret|apikey|api_key)\w*\s*(===|!==|==|!=)', 'timingSafeEqual|compare_digest|hmac\.Equal|MessageDigest\.isEqual|ConstantTimeCompare']
+  - id: signature-replay
+    vuln_class: authn
+    title: 签名请求防重放
+    check: API Key 签名、Webhook 签名、内部服务签名是否覆盖时间戳与 nonce；服务端是否检查时间戳在窗口内、nonce 是否已用过（并记录使用）。签名只覆盖请求体或路径、nonce 不查重、时间窗过宽，都可以重放已截获的请求。没有签名请求时为不适用。
+    locate:
+      grep: ['createHmac|hmac\.New|Mac\.getInstance|hmac\.new', 'x-[a-z-]*(signature|nonce|timestamp)', '\bnonce\b']
+  - id: otp-window
+    vuln_class: authn
+    title: 一次性口令的窗口与复用
+    check: TOTP / 短信 / 邮件验证码校验时允许的时间步或有效期是否合理（TOTP 不超过前后 1 步），同一个码是否只能使用一次，失败次数是否有限制。没有一次性口令时为不适用。
+    locate:
+      grep: ['totp|otplib|speakeasy|authenticator\.(check|verify)|pyotp', 'verify\w*(otp|code)\w*\(']
   - id: csrf-state-changing
     vuln_class: csrf
     title: 状态修改接口的 CSRF 防护
-    check: 以 Cookie 维持会话的状态修改接口（POST / PUT / DELETE，以及用 GET 改状态的接口）是否有 CSRF 防护（框架令牌、SameSite=Lax/Strict、自定义请求头校验）。Spring Security 关闭 csrf 只有在纯 Authorization 头认证、不使用 Cookie 会话时才合理。
+    check: 以 Cookie 维持会话的状态修改接口（POST / PUT / DELETE，以及用 GET 改状态的接口）是否有 CSRF 防护（框架令牌、自定义请求头校验）。读校验函数本身：缺少令牌、cookie 或请求头时是否放行，是否只校验存在而不比较值——放行分支就是缺陷，SameSite=Lax/Strict 只是缓解，不能据此判为已覆盖。Spring Security 关闭 csrf 只有在纯 Authorization 头认证、不使用 Cookie 会话时才合理。
+    locate:
+      grep: ['csrf|xsrf', 'x-requested-with|double.?submit']
   - id: csrf-graphql
     vuln_class: csrf
     title: GraphQL 的跨站执行
@@ -47,6 +67,8 @@ checklist:
     vuln_class: cors
     title: CORS 反射与凭据
     check: Access-Control-Allow-Origin 是否反射请求的 Origin、允许 * 或任意子域，同时 Allow-Credentials 为 true；是否允许 null Origin；开发模式的宽松配置是否可能在生产生效（由环境变量控制时看缺省值）。
+    locate:
+      grep: ['Access-Control-Allow-Origin|enableCors|cors\(|allowedOrigins|AllowOrigins|CrossOrigin|allowCredentials']
   - id: dos-nil-deref
     vuln_class: dos
     title: 未认证请求触发崩溃

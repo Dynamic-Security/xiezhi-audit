@@ -351,11 +351,29 @@ export const SubmitChallenge = Type.Object({
 }, { additionalProperties: false });
 export type SubmitChallenge = Static<typeof SubmitChallenge>;
 
+/**
+ * Suggested answers offered with a question to the user: 2–4 short, mutually exclusive answers fitting the
+ * question (e.g. “是，内部服务仅网关可达” / “否，部分服务可直接访问” / “不确定”). The UI shows them as one-click answers next to the
+ * free-text box; picking one is the same as typing it.
+ */
+export const ANSWER_OPTION_MAX = 40;
+export const AnswerOptions = Type.Array(Str(ANSWER_OPTION_MAX), { minItems: 2, maxItems: 4 });
+/** Trimmed, distinct options, or null when fewer than two remain (stored as the question's `options`). */
+export function answerOptions(options: readonly string[] | undefined): string[] | null {
+  const out = [...new Set((options ?? []).map((o) => o.trim().slice(0, ANSWER_OPTION_MAX)).filter(Boolean))].slice(0, 4);
+  return out.length >= 2 ? out : null;
+}
+/** A plan context item: the question for the user and its suggested answers (before it, a plain string). */
+export const ContextItem = Type.Object({ question: Str(1000), options: Type.Optional(AnswerOptions) }, { additionalProperties: false });
+export type ContextItem = Static<typeof ContextItem>;
+/** Older stored plans hold plain strings: read either form as `{ question, options }`. */
+export const contextItem = (c: ContextItem | string): ContextItem => (typeof c === 'string' ? { question: c } : c);
+
 export const SubmitPlan = Type.Object({
   summary: Str(4000),
   focusDirections: Type.Array(Type.Object({ direction: Str(500), reason: Str(1000) }, { additionalProperties: false }), { maxItems: 20 }),
   plannedKnowledge: Type.Array(Type.Object({ skill: Str(64), reason: Str(500) }, { additionalProperties: false }), { maxItems: 20 }),
-  contextNeeded: Type.Array(Str(1000), { maxItems: 20 }),
+  contextNeeded: Type.Array(ContextItem, { maxItems: 20 }),
   limitations: Type.Array(Str(1000), { maxItems: 20 }),
 }, { additionalProperties: false });
 export type SubmitPlan = Static<typeof SubmitPlan>;
@@ -383,6 +401,7 @@ export const AskUser = Type.Object({
   question: Str(2000),
   blocking: Type.Boolean({ description: 'True when the answer determines whether a conclusion holds.' }),
   context: Type.Optional(Str(2000)),
+  options: Type.Optional(AnswerOptions),
 }, { additionalProperties: false });
 export type AskUser = Static<typeof AskUser>;
 
@@ -508,14 +527,6 @@ export const SubmitDecision = Type.Object({
 }, { additionalProperties: false });
 export type SubmitDecision = Static<typeof SubmitDecision>;
 
-/** Independent review (`review`): a fresh session judges one finding without the hunt's context. */
-export const SubmitReview = Type.Object({
-  verdict: closedSet(['holds', 'refuted', 'insufficient'] as const),
-  confidence: Type.Number({ minimum: 0, maximum: 1 }),
-  reason: Str(2000),
-  evidence: Type.Array(CodeRef, { maxItems: 20 }),
-}, { additionalProperties: false });
-export type SubmitReview = Static<typeof SubmitReview>;
 
 export const SubmitReverify = Type.Object({
   verdict: closedSet(REVERIFY_VERDICTS),

@@ -60,7 +60,7 @@ export function registerAuditRoutes(app: FastifyInstance, ctx: AppContext): void
     const id = engine.createAudit({
       projectId: b.projectId, origin: 'ui', ...(b.repository ? { repository: b.repository } : {}), ...(b.ref ? { ref: b.ref } : {}),
       ...(b.mode ? { mode: b.mode } : {}), ...(b.related ? { related: b.related } : {}), ...(b.repositories ? { repositories: b.repositories } : {}), ...(b.refs ? { refs: b.refs } : {}),
-      ...(b.scene ? { scene: b.scene } : {}), ...(b.baseRef ? { baseRef: b.baseRef } : {}), ...(b.baseAuditId ? { baseAuditId: b.baseAuditId } : {}),
+      ...(b.scene ? { scene: b.scene } : {}), ...(b.baseRef ? { baseRef: b.baseRef } : {}), ...(b.baseRefs ? { baseRefs: b.baseRefs } : {}), ...(b.baseAuditId ? { baseAuditId: b.baseAuditId } : {}),
       ...(b.title ? { title: b.title } : {}), ...(b.strategyOverride ? { strategyOverride: b.strategyOverride } : {}), ...(b.autoStart ? { autoStart: true } : {}),
     });
     scheduler.plan(id);
@@ -108,7 +108,7 @@ export function registerAuditRoutes(app: FastifyInstance, ctx: AppContext): void
     const a = audit(req.params.aid);
     if (a.status === 'waiting_budget') throw new AppError('AUDIT_INVALID_TRANSITION', 'waiting for budget: add budget or decline');
     const b = req.body ? parseBody(B.PostAuditsAidResumeBody, req.body) : {};
-    engine.resume(a.id, { ...(b.restartFiltered ? { restartFiltered: true } : {}), ...(b.switchModel ? { switchModel: b.switchModel } : {}) });
+    engine.resume(a.id, { ...(b.restartFiltered ? { restartFiltered: true } : {}), ...(b.switchModel ? { switchModel: b.switchModel, ...(b.switchScope ? { switchScope: b.switchScope } : {}) } : {}) });
     scheduler.afterResume(a.id);
     return auditDetail(store, audit(a.id));
   });
@@ -163,6 +163,7 @@ export function registerAuditRoutes(app: FastifyInstance, ctx: AppContext): void
     const b = parseBody(B.PostAuditConcurrencyBody, req.body);
     return setAuditConcurrency(engine, req.params.aid, b.sessions);
   });
+  app.get<{ Params: { aid: string; sid: string } }>('/api/v1/audits/:aid/steps/:sid/filtered', async (req) => { audit(req.params.aid); return Q.filteredStepDetail(store, req.params.aid, req.params.sid); });
   app.get<{ Params: { aid: string } }>('/api/v1/audits/:aid/steps', async (req) => {
     audit(req.params.aid);
     return listSteps(store, req.params.aid).map(stepDto);
@@ -188,11 +189,12 @@ export function registerAuditRoutes(app: FastifyInstance, ctx: AppContext): void
     if (!['step', 'model', 'stage'].includes(by)) throw new AppError('COMMON_VALIDATION', 'groupBy');
     const rows = new Map<string, UsageRow>();
     for (const s of listSteps(store, req.params.aid)) {
-      if (s.tokens_in + s.tokens_out === 0 && s.cost_micros === null) continue;
+      if (s.tokens_in + s.tokens_out + s.tokens_cached === 0 && s.cost_micros === null) continue;
       const key = by === 'model' ? (s.model ? `${s.provider}/${s.model}` : '（确定性处理）') : s.kind;
-      const r = rows.get(key) ?? { key, tokensIn: 0, tokensOut: 0, costMicros: 0, unknownCostCalls: 0, calls: 0 };
+      const r = rows.get(key) ?? { key, tokensIn: 0, tokensOut: 0, tokensCached: 0, costMicros: 0, unknownCostCalls: 0, calls: 0 };
       r.tokensIn += s.tokens_in;
       r.tokensOut += s.tokens_out;
+      r.tokensCached += s.tokens_cached;
       r.calls += 1;
       if (s.cost_micros === null) r.unknownCostCalls += 1; else r.costMicros = (r.costMicros ?? 0) + s.cost_micros;
       rows.set(key, r);

@@ -11,7 +11,7 @@ import { scaleSummary } from '../steps/plan.js';
 import { incrementalSelection } from '../steps/scope.js';
 import { reuseTriage, triageIdentity, triageStep, type TriageOutput } from '../steps/triage.js';
 import { supplementSelection } from '../supplement.js';
-import { hypothesisModel, supplementScope, threatFromUnderstanding, threatHypothesesOn, threatIdentity, threatModelStep } from '../threat.js';
+import { hypothesisModel, supplementScope, threatHypothesesOn, threatIdentity, threatModelStep } from '../threat.js';
 import { seedRequirementHypotheses } from '../threat-model-audit.js';
 import { domainHuntOn } from '../domains.js';
 import type { PipelineRun, Stop } from './context.js';
@@ -27,14 +27,8 @@ export async function prepare(p: PipelineRun): Promise<Stop | null> {
   // loses the threat-model section.
   // The repositories' profiles are independent and run side by side; the threat models (which read
   // the profiles) start after all of them.
-  // when the threat model will run with the profile's model, one system-understanding session per
-  // repository writes both (the profile step), and the repository's first threat-model step applies its result.
-  const supplementEarly = supplementScope(rt);
-  const threatRuns = (threatHypothesesOn(s) || domainHuntOn(rt)) && ['full', 'incremental'].includes(rt.audit.scene) && !backfillScope(rt) && !supplementEarly?.hypothesisIds?.length;
-  const firstThreatModel = (crossModels(s, 'threat') ?? [hypothesisModel(rt)])[0]!;
-  const profileModel = stageModel(s, 'profile')!;
-  const understand = threatRuns && profileModel.provider === firstThreatModel.provider && profileModel.model === firstThreatModel.model;
-  const profileRowOf = new Map<string, string>();
+  // The profile and the threat model are separate sessions, also on the same model; the
+  // threat model reads the finished profile.
   if (rt.audit.scene === 'full' && !minimalPipeline(p)) {
     const profRows = rt.targets.map((repo) => ({ repo, row: ensureStep(store, auditId, {
       kind: 'profile', identity: profileIdentity(rt, repo), input: { repo: repo.name }, model: stageModel(s, 'profile')!, estimateTokens: estimateStep('profile'), maxAttempts: 2,
@@ -43,9 +37,8 @@ export async function prepare(p: PipelineRun): Promise<Stop | null> {
     let interrupted = false;
     await pool(profRows, p.parallel, async ({ repo, row }) => {
       if (interrupted || p.halting() || blockedP.length) return;
-      profileRowOf.set(repo.id, row.id);
       if (!reuseProfile(rt, row) && p.llmAllowed()) {
-        const pr = await p.step(row, (ctx) => profileStep(rt, ctx, repo, understand ? { understand: firstThreatModel } : {}));
+        const pr = await p.step(row, (ctx) => profileStep(rt, ctx, repo));
         if (pr === 'interrupted') interrupted = true;
         if (pr === 'blocked_budget') blockedP.push(row);
       } else p.skipUnrun(row);
@@ -88,18 +81,9 @@ export async function prepare(p: PipelineRun): Promise<Stop | null> {
     }) })));
     const blockedT: StepRow[] = [];
     let stoppedT = false;
-    await pool(jobs, p.parallel, async ({ repo, m, row, j }) => {
+    await pool(jobs, p.parallel, async ({ repo, m, row }) => {
       if (stoppedT || p.halting() || blockedT.length) return;
-      // the understanding session of this audit already wrote this repository's threat model.
-      const prof = j === 0 && understand ? profileRowOf.get(repo.id) : undefined;
-      const profRow = prof ? getStep(store, prof) : null;
-      const understood = profRow?.status === 'succeeded' && !profRow.reused_from && profRow.output_ref
-        ? store.artifacts.getJson<ProfileOutput>(profRow.output_ref).understanding : undefined;
-      if (understood) {
-        const tr = await p.step(row, async (ctx) => threatFromUnderstanding(rt, ctx, repo, m, understood.submissions));
-        if (tr === 'interrupted') stoppedT = true;
-        if (tr === 'blocked_budget') blockedT.push(row);
-      } else if (p.llmAllowed()) {
+      if (p.llmAllowed()) {
         const tr = await p.step(row, (ctx) => threatModelStep(rt, ctx, repo, m));
         if (tr === 'interrupted') stoppedT = true;
         if (tr === 'blocked_budget') blockedT.push(row);
@@ -125,8 +109,8 @@ export async function select(p: PipelineRun): Promise<TriageOutput | Stop> {
   const supplement = supplementScope(rt);
   if (supplement) return supplementSelection(rt, supplement);
   if (rt.audit.scene === 'incremental') {
-    const impact = rt.impact();
-    return impact ? incrementalSelection(rt, impact) : { kind: 'failed', reason: 'impact analysis missing' };
+    const impacts = rt.impacts();
+    return rt.targets.every((t) => impacts.has(t.name)) ? incrementalSelection(rt, impacts) : { kind: 'failed', reason: 'impact analysis missing' };
   }
   // Content identity: an unchanged tree, strategy and model reuse an earlier audit's triage.
   let triageRow = ensureStep(store, auditId, {

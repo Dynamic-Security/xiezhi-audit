@@ -8,7 +8,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { QuestionDto } from '@xiezhi/contracts';
 import { api, newIdempotencyKey } from '../../shared/api/client';
 import { useAudit, useExecution, useFindings, useQuestions, useTrajectory } from '../../shared/api/queries';
-import { AUDIT_STATUS, INTERVENTION, PARTIAL_REASON, PHASE, SCENE, fmt } from '../../shared/format/messages';
+import { AUDIT_STATUS, INTERVENTION, PARTIAL_REASON, PHASE, SCENE, fmt, reasonsLabel } from '../../shared/format/messages';
 import { AuditStatusBadge, Badge, Button, Icon, Progress, cx, ui, useToast } from '../../shared/ui';
 import S from './audit-live.module.css';
 import { DEFER_TO_AGENT_ANSWER } from './questionAnswers';
@@ -37,7 +37,7 @@ function QuestionItem({ q, auditEnded, onRecorded }: { q: QuestionDto; auditEnde
     return (
       <div className={S.q}>
         <div className={S.qText}><Icon name="help" size={13} />{q.text}</div>
-        <div className={S.qAnswer}>{q.status === 'dismissed' ? '已忽略' : `你的回答：${q.answer ?? ''}`}</div>
+        <div className={S.qAnswer}>{q.status === 'dismissed' ? '已忽略' : q.status === 'expired' ? '审计已取消，提问已失效' : `你的回答：${q.answer ?? ''}`}</div>
       </div>
     );
   }
@@ -45,12 +45,14 @@ function QuestionItem({ q, auditEnded, onRecorded }: { q: QuestionDto; auditEnde
     <div className={cx(S.q, S.qOpen)}>
       <div className={S.qText}><Icon name="help" size={13} />{q.text}{q.blocking && <Badge tone="warn">影响结论</Badge>}{q.asFact && <Badge tone="info" title="计划需要补充的上下文：回答会存为项目的企业事实，本次与以后的审计都会用到">回答存为事实</Badge>}</div>
       {q.asFact
-        ? <div className={ui.faint} style={{ fontSize: 12 }}>回答会存为项目的企业事实，以后的审计直接使用。</div>
-        : auditEnded && <div className={ui.faint} style={{ fontSize: 12 }}>审计已结束，相关结论暂按假设处理并保持待确认；回答后可以定向复验。</div>}
+        ? <div className={S.qNote}>回答会存为项目的企业事实，以后的审计直接使用。</div>
+        : auditEnded && <div className={S.qNote}>审计已结束，相关结论暂按假设处理并保持待确认；回答后可以定向复验。</div>}
       <div className={S.quick}>
-        {/* A context question (kept as a fact) asks for information: “是 / 否” is no answer there, and next to “回答会存为
-            项目的企业事实” it read as a switch for saving it — clicking it stored the fact “答：是”. */}
-        {!q.asFact && ['是', '否'].map((a) => <button key={a} className={ui.chip} disabled={busy} onClick={() => void answer(a)}>{a}</button>)}
+        {/* The answers the Agent suggested for this question; picking one is the same as typing it (a context
+            question saves it as a fact). Older questions have none: an Agent question falls back to “是 / 否”; a context
+            question (kept as a fact) asks for information — “是 / 否” is no answer there, and next to “回答会存为项目的企业事实”
+            it read as a switch for saving it — clicking it stored the fact “答：是”. */}
+        {(q.options.length ? q.options : q.asFact ? [] : ['是', '否']).map((a) => <button key={a} className={cx(ui.chip, S.option)} disabled={busy} onClick={() => void answer(a)}>{a}</button>)}
         {/* contracts DEFER_TO_AGENT_ANSWER: never saved as a fact. */}
         {!auditEnded && <button className={ui.chip} disabled={busy} onClick={() => void answer(DEFER_TO_AGENT_ANSWER)}>让 Agent 自行查询</button>}
         <button className={ui.chip} disabled={busy} onClick={() => void dismiss()}>忽略</button>
@@ -166,7 +168,7 @@ export function AuditLiveCard({ auditId, title, showInterventions }: { auditId: 
       {d && (
         <>
           <div className={S.meta}>
-            {SCENE[d.scene] ?? d.scene} · {PHASE[d.phase] ?? d.phase} · 发现 {d.findingCount} · {fmt.compact(d.budget.consumed.tokens)}/{fmt.compact(d.budget.effective.tokens)} tokens · {fmt.duration(d.budget.consumed.durationMs)}
+            {SCENE[d.scene] ?? d.scene} · {PHASE[d.phase] ?? d.phase} · 发现 {d.findingCount} · {fmt.tokens(d.budget.consumed.tokens)}/{fmt.tokens(d.budget.effective.tokens)} tokens · {fmt.duration(d.budget.consumed.durationMs)}
           </div>
           {!ended && d.status !== 'planning' && d.status !== 'awaiting_confirm' && <Progress value={d.budget.consumed.tokens} max={d.budget.effective.tokens} />}
           {d.status === 'running' && <ExecutionLine auditId={auditId} />}
@@ -183,7 +185,7 @@ export function AuditLiveCard({ auditId, title, showInterventions }: { auditId: 
           {ended && (
             <div className={S.note}>
               {d.status === 'completed' ? '审计已完成' : AUDIT_STATUS[d.status]}：{d.findingCount} 个发现{open.length ? `，${open.length} 个提问待回答（相关结论保持待确认）` : ''}。
-              {d.partialReasons.length > 0 && <span className={ui.faint}>未完成原因：{d.partialReasons.map((r) => PARTIAL_REASON[r] ?? r).join('、')}。</span>}
+              {d.partialReasons.length > 0 && <span className={ui.faint}>{reasonsLabel(d.status)}：{d.partialReasons.map((r) => PARTIAL_REASON[r] ?? r).join('、')}。</span>}
               <Link to="/audits/$aid" params={{ aid: auditId }} search={{ tab: 'results' }}>查看结果</Link>
             </div>
           )}

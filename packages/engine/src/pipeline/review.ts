@@ -83,7 +83,8 @@ export async function explore(p: PipelineRun, triage: TriageOutput, byId: Map<st
     const dr = await p.step(decideRow, (ctx) => decideStep(rt, round, ctx));
     if (dr === 'interrupted' || p.halting()) return p.interrupted();
     if (dr === 'blocked_budget') return p.blocked([decideRow]);
-    if (dr !== 'succeeded') { p.carried.add('STEP_FAILED'); stopped = true; break; }
+    // A failed decide step is a notice of the gate (deep exploration), not a reason.
+    if (dr !== 'succeeded') { stopped = true; break; }
     const d = store.artifacts.getJson<DecideOutput>(getStep(store, decideRow.id).output_ref!);
     if (d.decision.stop) { stopped = true; break; }
     let outcomeText: string;

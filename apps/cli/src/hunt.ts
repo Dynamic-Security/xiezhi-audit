@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { formatTokens } from '@xiezhi/contracts';
 import type { HuntBasis, HuntBasisDto, HuntDto, HuntResultsDto } from '@xiezhi/contracts';
 import { CliExit, EXIT_ERROR, EXIT_INCOMPLETE, EXIT_OK, print } from './io.js';
 
@@ -74,7 +75,7 @@ export async function huntCommand(api: HuntApi, sub: string | undefined, args: s
     for (const p of h.plan?.projects ?? []) print(`  ${p.name}：${p.repos.filter((r) => r.auditable).map((r) => r.name).join('、') || '（没有可审计仓库）'}`);
     const e = h.plan?.estimate;
     if (e?.precheck.status === 'done') print(`  预检：${e.precheck.judged} 个仓库有候选、需要 AI 研判；${e.precheck.cleared} 个没有候选，按规则判为不受影响`);
-    print(`  预计 ${e?.repositories ?? 0} 个仓库，约 ${e?.tokens.p50 ?? 0}–${e?.tokens.p90 ?? 0} tokens`);
+    print(`  预计 ${e?.repositories ?? 0} 个仓库，约 ${formatTokens(e?.tokens.p50 ?? 0)}–${formatTokens(e?.tokens.p90 ?? 0)} tokens`);
     if (!values.yes) throw new CliExit(EXIT_ERROR, '确认后加 --yes 启动');
     await api.confirm(h.id);
     print('已启动');

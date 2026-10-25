@@ -2,7 +2,8 @@
 // and the new-audit form. Shares are fractions of the total token budget; the form shows them as percentages.
 import type { AuditStrategy, BudgetStage } from '@xiezhi/contracts';
 import { BUDGET_STAGE, ON_SHORTFALL, fmt } from '../../shared/format/messages';
-import { Field, cx, ui } from '../../shared/ui';
+import { Field, InfoTip, cx, ui } from '../../shared/ui';
+import { BUDGET_INFO } from './stageInfo';
 
 export type StageShares = Partial<Record<BudgetStage, number>>;
 
@@ -11,8 +12,8 @@ const PREPARE_SHARE_CAP = 0.3;
 
 /** Which stages a scene runs, so the editor does not show quotas that can never be used. */
 const SCENE_STAGES: Record<string, readonly BudgetStage[]> = {
-  full: ['prepare', 'triage', 'hunt', 'gap', 'hypotheses', 'explore', 'merge', 'review'],
-  incremental: ['prepare', 'hunt', 'hypotheses', 'merge', 'review'],
+  full: ['prepare', 'hypotheses', 'triage', 'hunt', 'gap', 'merge', 'explore', 'review'],
+  incremental: ['prepare', 'hypotheses', 'hunt', 'merge', 'review'],
 };
 
 const pct = (r: number | undefined) => (r === undefined ? '' : String(Math.round(r * 1000) / 10));
@@ -46,12 +47,16 @@ export function BudgetStagesEditor({ scene, value, total, onChange, on, onToggle
       {toggle}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
         {stages.map((k) => (
-          <label key={k} className={ui.stack} style={{ gap: 4 }}>
-            <span style={{ fontSize: 13 }}>{BUDGET_STAGE[k]}</span>
+          // A div, not a label: the ⓘ is a button and would become the label's control (the input has its own aria-label).
+          <div key={k} className={ui.stack} style={{ gap: 4 }}>
+            <span style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              {BUDGET_STAGE[k]}
+              {BUDGET_INFO[k] && <InfoTip label={`「${BUDGET_STAGE[k]}」额度说明`}><b>{BUDGET_STAGE[k]}</b><div>{BUDGET_INFO[k].does}</div><div>进度条：{BUDGET_INFO[k].shows}</div></InfoTip>}
+            </span>
             <input className={ui.input} type="number" min={0} max={100} step={1} aria-label={`${BUDGET_STAGE[k]}额度百分比`} value={pct(value[k])}
               placeholder="不限" onChange={(e) => onChange({ ...value, [k]: e.target.value === '' ? 1 : Math.min(100, Math.max(0, Number(e.target.value))) / 100 })} />
-            <span className={ui.faint} style={{ fontSize: 12 }}>{value[k] === undefined || value[k] === 1 ? '不限（只受总预算限制）' : `${fmt.n(tokensOf(k, value[k]!))} tokens${note(k)}`}</span>
-          </label>
+            <span className={ui.faint} style={{ fontSize: 12 }}>{value[k] === undefined || value[k] === 1 ? '不限（只受总预算限制）' : `${fmt.tokens(tokensOf(k, value[k]!))} tokens${note(k)}`}</span>
+          </div>
         ))}
       </div>
     </Field>

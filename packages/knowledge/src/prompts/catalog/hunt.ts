@@ -148,8 +148,14 @@ export const HUNT: PromptDef[] = [
     description: '清单核对认为没有覆盖的条目，其后列出条目。',
     text: [
       '## 清单补审条目',
-      '清单核对认为下面的检查条目没有被覆盖：逐条从给出的文件开始阅读，确认系统是否有对应的防护；有漏洞就提交发现，没有就在 scopeReviewed 中写明读过的范围与结论（reviewedTargets 与 ruledOut 不需要列出这些条目）。',
+      '清单核对认为下面的检查条目没有被覆盖：逐条从给出的文件与搜索命中开始阅读，确认每个适用位置是否有对应的防护；有漏洞就提交发现。',
+      '每个条目都要在 scopeReviewed 中单独写一行“itemId=<条目 id>：结论”：结论写有没有问题、读过哪些位置、依据是什么；提交了发现的条目写明对应的发现标题。只读到一部分位置就写清哪些没读到，不要用一段话概括全部条目（reviewedTargets 与 ruledOut 不需要列出这些条目）。',
     ].join('\n'),
+  },
+  {
+    id: 'feedback.hunt.checklist_unanswered', group: 'tool', title: '校验反馈：清单补审条目缺少逐条结论', readonly: '校验反馈：提交不合规时返回给模型的说明，只读展示',
+    description: 'submit_findings 校验：清单补审批次的 scopeReviewed 没有为某些条目写“itemId=<id>：结论”；{{ids}} 为缺少的条目。',
+    text: 'scopeReviewed needs one line "itemId=<id>: conclusion" for each checklist item; missing: {{ids}}',
   },
   {
     id: 'feedback.hunt.not_targets_dropped', group: 'tool', title: '工具反馈：非索引条目不进 reviewedTargets', readonly: '校验反馈：提交不合规时返回给模型的说明，只读展示',
@@ -182,20 +188,20 @@ export const HUNT: PromptDef[] = [
     text: '（本批候选所在文件没有直接变更，它们因调用关系受影响）',
   },
   {
-    id: 'hunt.incremental.variants', group: 'step_task', title: '调查：变体搜索',
-    description: '增量审计中与变更模式相似的未修改位置，其后列出位置。',
-    text: [
-      '## 与本次变更模式相似的未修改位置（变体搜索）',
-      '这些位置没有被本次修改，但写法与变更中修复或引入的风险写法相似：逐个阅读判断是否同样存在问题（它们不是结构索引候选，reviewedTargets 不需要列出）。',
-    ].join('\n'),
-  },
-  {
     id: 'hunt.verify.submit', group: 'step_task', title: '风险假设验证：进度与提交',
     description: '风险假设验证批次在假设列表之后的进度标记与提交要求。',
     text: [
       '每条假设开始验证时用 mark_candidate（candidateId 为 hypothesisId）标记 investigating，得出结论后再标记一次（finding = 证实 / ruled_out = 反驳 / suspicious = 无法判定）并写一句理由；最终仍以 submit_findings 为准。',
       '完成后调用 submit_findings：findings（证实的问题，没有则为空列表；location 为危险操作位置）、verdicts（每条假设一个结论）、reviewedTargets 与 ruledOut（本批没有结构索引候选时留空）、scopeReviewed（实际阅读过的文件范围）。',
       '- 每条发现给出 verdict：代码证据已能定论时为 confirmed；只有成立与否取决于代码以外的具体事实时才为 pending，并填写 pendingCondition（见工作规则）。',
+    ].join('\n'),
+  },
+  {
+    id: 'hunt.batch.intro_items', group: 'step_task', title: '调查：任务（只有列出的条目）',
+    description: '本批没有结构索引候选或变更文件、只有下文列出的条目（清单补审、外部扫描结果、深度探索方向）时任务的开头；{{n}} 为条目数。此前这里也用 hunt.batch.intro，模型读到“以下 N 个候选”却找不到候选列表。',
+    text: [
+      '请深入调查下文列出的 {{n}} 个条目（不是结构索引候选）。对每个条目：从给出的位置开始阅读代码，沿调用链追踪数据来源与校验、鉴权，判断是否存在可利用漏洞。',
+      '除了条目本身的类别，也要注意同一链路上的越权（缺少归属校验）、业务逻辑问题。',
     ].join('\n'),
   },
   {
@@ -311,6 +317,16 @@ export const HUNT: PromptDef[] = [
     id: 'feedback.triage.unknown_candidate', group: 'tool', title: '校验反馈：初筛未知候选 id', readonly: '校验反馈：提交不合规时返回给模型的说明，只读展示',
     description: 'submit_triage 中无法对应到列出候选的 id；{{ids}} 为前 5 个。',
     text: 'unknown candidateId: {{ids}} (copy the id before the first " | " exactly)',
+  },
+  {
+    id: 'feedback.triage.unknown_dropped', group: 'tool', title: '工具反馈：初筛未知候选 id 已去掉', readonly: '校验反馈：提交不合规时返回给模型的说明，只读展示',
+    description: 'submit_triage 中少数 id 无法对应到列出候选时，引擎去掉这些评分并照常接受其余部分；{{n}} 为去掉的条数，{{ids}} 为前 5 个。',
+    text: 'note: {{n}} score(s) with an unknown candidateId were left out ({{ids}}); the rest of the call was accepted. Do not resubmit the scores already accepted.',
+  },
+  {
+    id: 'nudge.triage.unscored', group: 'nudge', title: '提醒：初筛还有候选没打分',
+    description: '初筛会话提交后，本段列出的候选仍有超过一成没有评分时追问一次；{{n}} 为未评分的数量，其后列出前 40 个 id。',
+    text: '还有 {{n}} 个列出的候选没有评分（下面列出前几个，其余见上面的候选列表）。每个候选都要有 1–5 分和一句理由；请继续调用 submit_triage 只提交这些候选的评分（已接受的不要重复提交），一次调用不超过 150 条，可以分多次调用。',
   },
   {
     id: 'triage.intro', group: 'step_task', title: '初筛：任务',

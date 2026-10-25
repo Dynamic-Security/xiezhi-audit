@@ -10,8 +10,8 @@ import { DEFAULT_PROMPTS_HASH, PromptSet, effectiveSkills, freezeSkills, install
 import { ModelHub, modelGate, pingModel, type ModelMode } from '@xiezhi/agent';
 import type { Store } from '@xiezhi/store';
 import { budgetStoppedStages, checkpointDuration } from './budget.js';
-import { ensureCoverageItems } from './coverage.js';
-import { AuditRuntime, type PauseCause } from './runtime.js';
+import { ensureCoverageItems, incrementalCoverageTargets } from './coverage.js';
+import { AuditRuntime, type PauseCause, type RepoInfo } from './runtime.js';
 import { SERVICE_PAUSE_REASON, ServiceProbes, type ServicePing } from './service-probe.js';
 import { confirmHunt } from './hunt.js';
 import { BackgroundJobs, settleInterruptedJobs } from './jobs.js';
@@ -41,6 +41,7 @@ import { FLAG_BUDGET_DECLINED, type RunResult } from './pipeline/context.js';
 import { runPipeline } from './pipeline/run.js';
 import { updatePlanDraft, type DraftAuditRow } from './plan-edit.js';
 import { withThreatModels } from './threat-model-audit.js';
+import { filteredModels } from './queries/filtered.js';
 
 export type { RunResult } from './pipeline/context.js';
 export interface EngineOptions {
@@ -298,17 +299,17 @@ export class Engine {
   }
 
   private async loadIndexes(rt: AuditRuntime): Promise<void> {
-    if (!rt.strategy.tools.ast) {
+    // A target of a multi-repository incremental audit without a baseline is audited in full, so it has the
+    // structure index (its candidates and coverage) even with AST off.
+    const full = (r: RepoInfo) => rt.strategy.tools.ast || (rt.audit.scene === 'incremental' && r.role === 'target' && !rt.baseRepo(r.id));
+    for (const repo of rt.repos.filter((r) => !full(r))) {
       // Identity only: cached by rootHash; failure just leaves findings without fingerprints.
-      for (const repo of rt.repos) {
-        if (rt.identityIndexes.has(repo.name)) continue;
-        try {
-          rt.identityIndexes.set(repo.name, (await buildIndex(rt.views.get(repo.name)!, this.rules, { indexesDir: this.store.paths.indexes, ...rt.indexLanguages(repo.name) })).index);
-        } catch { /* no fingerprints: matching falls back to suspected matching */ }
-      }
-      return;
+      if (rt.identityIndexes.has(repo.name)) continue;
+      try {
+        rt.identityIndexes.set(repo.name, (await buildIndex(rt.views.get(repo.name)!, this.rules, { indexesDir: this.store.paths.indexes, ...rt.indexLanguages(repo.name) })).index);
+      } catch { /* no fingerprints: matching falls back to suspected matching */ }
     }
-    for (const repo of rt.repos) {
+    for (const repo of rt.repos.filter(full)) {
       if (rt.indexes.has(repo.name)) continue;
       const r = await buildIndex(rt.views.get(repo.name)!, this.rules, { indexesDir: this.store.paths.indexes, ...rt.indexLanguages(repo.name) });
       let index = effectiveIndex(r.index, rt.strategy);
@@ -386,12 +387,15 @@ export class Engine {
     }
     rt = this.runtime(auditId);
     const incremental = a.scene === 'incremental';
-    if (incremental && !rt.baseRepo()) {
-      // Baseline given as a ref: snapshot it like the head.
-      const target = rt.targetRepo;
-      const step = ensureStep(this.store, auditId, { kind: 'snapshot', identity: { repo: target.id, base: true }, input: { repo: target.name, base: true }, required: true, maxAttempts: 1 });
-      const out = await runStep(rt, step, signal, this.runner, (ctx) => snapshotStep(rt, target.id, ctx, { base: true }));
-      if (out !== 'succeeded') return this.planningStopped(auditId, out, 'baseline snapshot failed', signal);
+    if (incremental) {
+      // Baseline given as a ref: snapshot it like the head; each target has its own.
+      const byRef = new Set(this.store.all<{ repository_id: string }>(
+        `SELECT repository_id FROM audit_repository WHERE audit_id = ? AND role_in_audit = 'target' AND base_requested_ref IS NOT NULL`, auditId).map((r) => r.repository_id));
+      for (const target of rt.targets.filter((t) => byRef.has(t.id) && !rt.baseRepo(t.id))) {
+        const step = ensureStep(this.store, auditId, { kind: 'snapshot', identity: { repo: target.id, base: true }, input: { repo: target.name, base: true }, required: true, maxAttempts: 1 });
+        const out = await runStep(rt, step, signal, this.runner, (ctx) => snapshotStep(rt, target.id, ctx, { base: true }));
+        if (out !== 'succeeded') return this.planningStopped(auditId, out, 'baseline snapshot failed', signal);
+      }
       rt = this.runtime(auditId);
     }
     if (rt.strategy.tools.ast) {
@@ -404,9 +408,11 @@ export class Engine {
     }
     await this.loadIndexes(rt);
     if (incremental) {
-      const scopeRow = ensureStep(this.store, auditId, { kind: 'scope', identity: scopeIdentity(rt, this.rules), required: true, maxAttempts: 1 });
-      const out = await runStep(rt, scopeRow, signal, this.runner, (ctx) => scopeStep(rt, this.rules, ctx));
-      if (out !== 'succeeded') return this.planningStopped(auditId, out, 'impact analysis failed', signal);
+      for (const target of rt.targets) {
+        const scopeRow = ensureStep(this.store, auditId, { kind: 'scope', identity: scopeIdentity(rt, this.rules, target), input: { repo: target.name }, required: true, maxAttempts: 1 });
+        const out = await runStep(rt, scopeRow, signal, this.runner, (ctx) => scopeStep(rt, this.rules, ctx, target));
+        if (out !== 'succeeded') return this.planningStopped(auditId, out, 'impact analysis failed', signal);
+      }
     }
     const backfill = backfillScope(rt);
     const supplement = supplementScope(rt);
@@ -499,13 +505,22 @@ export class Engine {
    * Continue an interrupted or paused audit. `restartFiltered`: steps a content filter refused start afresh —
    * their saved conversation is dropped — instead of retrying the conversation as it is.
    */
-  resume(auditId: string, opts: { restartFiltered?: boolean; switchModel?: ModelRef } = {}): void {
+  resume(auditId: string, opts: { restartFiltered?: boolean; switchModel?: ModelRef; switchScope?: 'filtered' | 'later' } = {}): void {
     const a = getAudit(this.store, auditId);
     this.probes.cancel(auditId);
     if ((opts.restartFiltered || opts.switchModel) && ['interrupted', 'paused'].includes(a.status)) {
       const to = opts.switchModel;
       if (to && !this.store.config.modelProviders.some((p) => p.id === to.provider && p.models.some((m) => m.id === to.model))) {
         throw new AppError('COMMON_VALIDATION', `model ${to.provider}/${to.model} is not configured`);
+      }
+      if (to && opts.switchScope === 'later') {
+        const switches = JSON.parse(a.model_switches || '{}') as Record<string, ModelRef>;
+        const key = `${to.provider}/${to.model}`;
+        const from = filteredModels(this.store, auditId).filter((m) => m !== key);
+        for (const m of from) switches[m] = to;
+        delete switches[key];
+        this.store.update('audit', { id: auditId }, { model_switches: JSON.stringify(switches) });
+        this.store.appendEvent(auditId, 'intervention.applied', { kind: 'switch_model_later', from, to });
       }
       for (const s of listSteps(this.store, auditId).filter((x) => x.status === 'interrupted' && x.error_class === 'CONTENT_FILTERED')) {
         if (opts.restartFiltered) {
@@ -700,11 +715,10 @@ export class Engine {
       await this.loadIndexes(rt);
       // Incremental: only the impact set is in scope for coverage; outside it everything
       // is not_covered. A full-scan fallback covers everything like a full audit.
-      const impact = rt.audit.scene === 'incremental' ? rt.impact() : null;
       const backfill = backfillScope(rt);
       const supplement = supplementScope(rt);
       ensureCoverageItems(rt, backfill ? new Set(backfill.targets) : supplement ? supplementCoverageTargets(rt, supplement)
-        : impact && impact.mode !== 'full_scan' ? new Set([...impact.affectedEntrypoints, ...impact.affectedSinks]) : undefined);
+        : rt.audit.scene === 'incremental' ? incrementalCoverageTargets(rt) : undefined);
       return await this.pipeline(rt, signal);
     } catch (e) {
       if (signal.aborted || this.pauseRequested.has(auditId)) return this.halt(auditId, signal);
@@ -774,7 +788,8 @@ export class Engine {
     const steps = listSteps(this.store, auditId);
     return {
       audit: a,
-      steps: steps.map((s) => ({ kind: s.kind, status: s.status, attempt: s.attempt, tokens: s.tokens_in + s.tokens_out, error: s.error_class })),
+      // tokens as the budget counts them (cached input included): the steps add up to `budget.consumed.tokens`.
+      steps: steps.map((s) => ({ kind: s.kind, status: s.status, attempt: s.attempt, tokens: s.tokens_in + s.tokens_out + s.tokens_cached, error: s.error_class })),
       plan: a.plan_ref ? this.store.artifacts.getJson<AuditPlan>(a.plan_ref) : null,
       gate: a.gate_ref ? this.store.artifacts.getJson<GateResult>(a.gate_ref) : null,
     };

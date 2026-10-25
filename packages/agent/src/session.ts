@@ -3,6 +3,7 @@
 import {
   createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, defineTool, type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
+import type { ImageContent } from '@earendil-works/pi-ai';
 import { existsSync } from 'node:fs';
 import type { TSchema } from 'typebox';
 import { check, type ErrorClass, type ModelRef } from '@xiezhi/contracts';
@@ -35,6 +36,11 @@ export interface AuditTool {
    * only when no issue is left.
    */
   prune?(args: any, issues: string[]): { args: any; note: string } | null;
+  /**
+   * submit only: fill defaults the model may leave out before the call is checked; the result is what is
+   * validated, run and recorded as the submission.
+   */
+  normalize?(args: any): any;
 }
 
 export type SessionEvent =
@@ -65,6 +71,8 @@ export interface SessionSpec {
   agentDir: string;
   systemPrompt: string;
   prompt: string;
+  /** Images sent with the prompt (conversation attachments); not with a resumed session's prompt. */
+  images?: ImageContent[];
   tools: AuditTool[];
   /** Submit tools that must be called successfully at least once before the session may end. */
   requiredSubmits: string[];
@@ -299,7 +307,7 @@ export function startSession(spec: SessionSpec): SessionHandle {
         egress.call(t.name, params);
         noteReferences(params);
         try {
-          let args = params;
+          let args = t.kind === 'submit' && t.normalize ? t.normalize(params) : params;
           let pruned: string | null = prunedNotes[t.name]?.shift() ?? null;
           if (pruned) emit({ type: 'contract.violation', tool: t.name, issues: [`accepted after dropping the faulty items: ${pruned}`.slice(0, 2000)], attempt: 0 });
           if (t.kind === 'submit') {
@@ -525,7 +533,7 @@ export function startSession(spec: SessionSpec): SessionHandle {
     if (spec.signal?.aborted) onAbort();
     spec.signal?.addEventListener('abort', onAbort, { once: true });
     try {
-      if (!status) await session.prompt(resumed ? (spec.resumePrompt ?? resumePrompt()) : spec.prompt);
+      if (!status) await session.prompt(resumed ? (spec.resumePrompt ?? resumePrompt()) : spec.prompt, !resumed && spec.images?.length ? { images: spec.images } : undefined);
     } catch (e) {
       if (!status) { status = 'error'; errorMessage = (e as Error).message; errorClass = classifyProviderError(errorMessage, (lastAssistant as { text?: string } | null)?.text); }
     } finally {

@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, rmdirSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
-  crossModels, isAuditLanguage, newId, stageFallback, stageModel, upgradeStrategy, type AuditLanguage, type BudgetStage, type Connection, type AuditStrategy, type EventType, type ImpactSet, type ModelRef, type SnapshotManifest, type StepKind, type StructIndex,
+  answerOptions, crossModels, isAuditLanguage, newId, stageFallback, stageModel, upgradeStrategy, type AuditLanguage, type BudgetStage, type Connection, type AuditStrategy, type EventType, type ImpactSet, type ModelRef, type SnapshotManifest, type StepKind, type StructIndex,
 } from '@xiezhi/contracts';
 import {
   computeRepoSignals, CONNECT_VERSION, extractConnections, type ConnectLimit, gitLog, parseGitUrl, remoteCacheDir, toolSymbolLookup, matchConnections, mergeRanges, SnapshotView, type CrossRepoData, type Executor, type IndexMap, type Range, type RuleSet,
@@ -29,7 +29,7 @@ import { indexLanguagesFor } from './auditable.js';
 import { languageOf, type LspPool } from './lsp.js';
 import { buildConnectorAccess, connectorPrompt, type ConnectorRef } from './connector-access.js';
 import { costMicros } from './estimates.js';
-import { getAudit, sessionLimit, type AuditRow, type StepRow } from './state.js';
+import { getAudit, isCrossLane, sessionLimit, type AuditRow, type StepRow } from './state.js';
 import { budgetStage, stepStage } from './stages.js';
 import { resumableTranscript, transcriptDir, TRANSIENT_SESSION_ERRORS } from './resume.js';
 import { isSystemModel, renderSystemModel, renderThreatModel, type ProfileOutput, type SystemModelOutput } from './steps/profile.js';
@@ -98,6 +98,11 @@ export interface SessionArgs {
    * responsibility cards. A per-repository understanding session of a multi-repository audit (its sub-agents inherit it).
    */
   ownRepoOnly?: boolean;
+  /**
+   * The prompt sends the model to service_card (the cross-repository system session): the tool is there even
+   * when the project counts as a monolith (no gateway). Own-repository sessions get it the same way.
+   */
+  serviceCards?: boolean;
 }
 
 interface SessionScope { id: string; role: 'main' | 'task'; parent?: string }
@@ -172,6 +177,16 @@ export class AuditRuntime {
    * session of the step (sub-agents included). Restored from `model.fallback` events when a run resumes.
    */
   readonly fallbacks = new Map<string, ModelRef>();
+  /**
+   * “切换模型重试 · 之后所有步骤”: a model a content filter refused (`provider/model`) → the model the user chose
+   * for every later step that would run on it. Kept on the audit row (`model_switches`).
+   */
+  readonly modelSwitches = new Map<string, ModelRef>();
+  /**
+   * Cross lanes a content filter refused while another lane of the task goes on: they wait for a person for
+   * the rest of this run and are skipped when it finishes. Not restored: a resumed run tries them again.
+   */
+  readonly filteredLanes = new Set<string>();
   /** Steer handles of sessions currently running for this audit (answers, interventions, pause). */
   steers: Set<(text: string) => Promise<void>> = new Set();
 
@@ -185,10 +200,18 @@ export class AuditRuntime {
   load(): void {
     const a = this.audit;
     const strategy = upgradeStrategy(JSON.parse(a.strategy_frozen ?? a.strategy_draft));
+    // The switched model is read from the step row, which the switch updated: the event is redacted, and a provider id
+    // equal to a configured secret came back as `[REDACTED]` and failed the step as “not configured”.
     this.fallbacks.clear();
+    const stepRows = new Map(this.store.all<{ id: string; provider: string | null; model: string | null }>('SELECT id, provider, model FROM step WHERE audit_id = ?', this.auditId).map((r) => [r.id, r]));
     for (const e of this.store.listEvents(this.auditId, 0, ['model.fallback'])) {
-      if (e.stepId && !e.payload.degraded && e.payload.to) this.fallbacks.set(e.stepId, e.payload.to as ModelRef);
+      const row = e.stepId ? stepRows.get(e.stepId) : undefined;
+      if (!row?.provider || !row.model || e.payload.degraded || !e.payload.to) continue;
+      const thinking = (e.payload.to as ModelRef).thinking;
+      this.fallbacks.set(row.id, { provider: row.provider, model: row.model, ...(thinking ? { thinking } : {}) });
     }
+    this.modelSwitches.clear();
+    for (const [from, to] of Object.entries(JSON.parse(a.model_switches || '{}') as Record<string, ModelRef>)) this.modelSwitches.set(from, to);
     // A limit changed while the audit ran is kept in the trajectory; a resumed run picks it up again.
     this.strategy = { ...strategy, concurrency: { ...strategy.concurrency, sessions: sessionLimit(this.store, this.auditId, strategy.concurrency.sessions) } };
     if (a.knowledge_ref) this.knowledge = this.store.artifacts.getJson<FrozenKnowledge>(a.knowledge_ref);
@@ -231,15 +254,26 @@ export class AuditRuntime {
     return this.indexes.get(repoName) ?? this.identityIndexes.get(repoName);
   }
 
-  /** Baseline snapshot of the target repository (incremental audits). */
-  baseRepo(): RepoInfo | undefined {
-    return this.baseRepos.find((r) => r.id === this.targetRepo.id);
+  /** Baseline snapshot of a target repository (incremental audits; default the first target). */
+  baseRepo(repoId = this.targetRepo.id): RepoInfo | undefined {
+    return this.baseRepos.find((r) => r.id === repoId);
   }
 
-  /** Impact set computed by this audit's scope step (incremental audits), or null. */
-  impact(): ImpactSet | null {
-    const row = this.store.get<{ output_ref: string }>(`SELECT output_ref FROM step WHERE audit_id = ? AND kind = 'scope' AND status = 'succeeded' ORDER BY seq DESC LIMIT 1`, this.auditId);
-    return row ? this.store.artifacts.getJson<ImpactSet>(row.output_ref) : null;
+  /**
+   * Impact sets computed by this audit's scope steps (incremental audits), by target repository name: one per target.
+   * A scope step without `input.repo` (older audits) is the first target's.
+   */
+  impacts(): Map<string, ImpactSet> {
+    const out = new Map<string, ImpactSet>();
+    for (const row of this.store.all<{ output_ref: string; input: string }>(`SELECT output_ref, input FROM step WHERE audit_id = ? AND kind = 'scope' AND status = 'succeeded' ORDER BY seq`, this.auditId)) {
+      out.set(fromJson<{ repo?: string }>(row.input, {}).repo ?? this.targetRepo.name, this.store.artifacts.getJson<ImpactSet>(row.output_ref));
+    }
+    return out;
+  }
+
+  /** Impact set of one target repository (default the first target), or null. */
+  impact(repoName = this.targetRepo.name): ImpactSet | null {
+    return this.impacts().get(repoName) ?? null;
   }
 
   repoByName(name: string | undefined): RepoInfo | undefined {
@@ -306,19 +340,41 @@ export class AuditRuntime {
     return stage ? stageModel(this.strategy, stage) : null;
   }
 
-  fallbackFor(step: Pick<StepRow, 'kind' | 'lineage_id' | 'model' | 'provider'>): { to: ModelRef; degraded: boolean } | null {
+  fallbackFor(step: Pick<StepRow, 'kind' | 'lineage_id' | 'model' | 'provider' | 'input'>): { to: ModelRef; degraded: boolean } | null {
     const stage = stepStage(step.kind, step.lineage_id);
     if (!stage) return null;
     const current = this.stepModel(step);
     if (!current) return null;
     const to = stageFallback(this.strategy, stage, this.store.config.fallbackModel, current);
     if (!to) return null;
-    // A crossed stage whose fallback is itself one of the cross models is degraded rather than replaced.
+    // A cross lane whose fallback is itself one of the cross models is degraded rather than replaced. Other
+    // steps of a crossed stage (lead, gap, recheck) give a single opinion and switch.
+    return { to, degraded: this.duplicatesCrossModel(step, to) };
+  }
+
+  /**
+   * The model a step switches to before it starts because the user chose “之后所有步骤” for the model it would run on;
+   * null when there is no switch, or when the step is a cross lane and the chosen model is another cross model.
+   */
+  laterSwitch(step: Pick<StepRow, 'kind' | 'lineage_id' | 'model' | 'provider' | 'input'>): { from: string; to: ModelRef } | null {
+    const current = this.stepModel(step);
+    if (!current) return null;
+    const from = `${current.provider}/${current.model}`;
+    let to = this.modelSwitches.get(from);
+    // A switch whose target was itself switched later follows the chain (bounded: each model is a key once).
+    for (let i = 0; to && i < this.modelSwitches.size; i++) to = this.modelSwitches.get(`${to.provider}/${to.model}`) ?? to;
+    if (!to || (to.provider === current.provider && to.model === current.model)) return null;
+    return this.duplicatesCrossModel(step, to) ? null : { from, to };
+  }
+
+  /** A cross lane of a crossed stage that would run on one of the other cross models. */
+  private duplicatesCrossModel(step: Pick<StepRow, 'kind' | 'lineage_id' | 'input'>, to: ModelRef): boolean {
+    const stage = stepStage(step.kind, step.lineage_id);
+    if (!stage || !isCrossLane(step)) return false;
     const crossed = stage === 'hunt' ? crossModels(this.strategy, 'hunt')
       : stage === 'logic' ? crossModels(this.strategy, 'threat') ?? crossModels(this.strategy, 'verify')
         : stage === 'challenge' ? crossModels(this.strategy, 'review') : null;
-    const degraded = !!crossed && crossed.some((m) => m.provider === to.provider && m.model === to.model);
-    return { to, degraded };
+    return !!crossed && crossed.some((m) => m.provider === to.provider && m.model === to.model);
   }
 
   /** Events raised inside an agent session carry its identity, so sub-agents can be told apart from their parent. */
@@ -479,11 +535,13 @@ export class AuditRuntime {
       const t0 = Date.now();
       const waitSignal = args.task ? AbortSignal.any([args.signal, AbortSignal.timeout(args.task.waitMs)]) : args.signal;
       let slot: { release: () => void; waited: boolean };
+      // A sub-agent that gives up waiting never emits task.started; its goal rides on the wait events.
+      const goal = args.task ? { goal: args.task.goal.slice(0, 500) } : {};
       try {
-        slot = args.noSlot ? { release: () => {}, waited: false } : await this.slots.acquire({ high: !!args.task, signal: waitSignal, onQueued: () => this.event('session.queued', { wait: 'slot' }, args.stepId) });
+        slot = args.noSlot ? { release: () => {}, waited: false } : await this.slots.acquire({ high: !!args.task, signal: waitSignal, onQueued: () => this.event('session.queued', { wait: 'slot', ...goal }, args.stepId) });
       } catch (e) {
         if (args.signal.aborted || !args.task) throw e;
-        this.event('session.dequeued', { wait: 'slot', ms: Date.now() - t0, gaveUp: true }, args.stepId);
+        this.event('session.dequeued', { wait: 'slot', ms: Date.now() - t0, gaveUp: true, ...goal }, args.stepId);
         throw new Error(P('feedback.task.no_slot', { seconds: Math.round(args.task.waitMs / 1000), sessions: this.strategy.concurrency.sessions }), { cause: e });
       }
       if (slot.waited) this.event('session.dequeued', { wait: 'slot', ms: Date.now() - t0 }, args.stepId);
@@ -552,12 +610,35 @@ export class AuditRuntime {
     const repo = args.repo && this.views.has(args.repo) ? args.repo : this.targetRepo.name;
     const only = !!args.ownRepoOnly && this.repos.length > 1;
     // An own-repository session gets the peers' responsibility cards instead of their code.
-    const serviceAccess = args.submitOnly || (!SERVICE_CARD_KINDS.has(args.kind) && !only) ? null : this.serviceAccess(args.stepId, nonce, args.model, repo);
+    const cards = only || (!!args.serviceCards && this.repos.length > 1);
+    const serviceAccess = args.submitOnly || (!SERVICE_CARD_KINDS.has(args.kind) && !cards) ? null : this.serviceAccess(args.stepId, nonce, args.model, repo, cards);
     const otherRepo = (r: string | undefined) => {
       if (only && r && r !== repo) throw new Error(P('feedback.own_repo_only', { repo }));
     };
     const indexes = only ? new Map([...this.indexes].filter(([k]) => k === repo)) : this.indexes;
-    const tools = args.submitOnly ? [...args.submitTools] : [
+    // In a multi-repository audit a code reference without a repository is in the session's
+    // repository when the file is there, else in the one repository that has that path — not the audit's first target
+    // (findings of php-invoice sessions were refused as missing from cs-depot).
+    const sessionRepo = args.repo && this.views.has(args.repo) ? args.repo : undefined;
+    const has = (r: string, path: string) => { try { this.views.get(r)!.guard(path); return true; } catch { return false; } };
+    const refRepo = (path: string) => {
+      if (sessionRepo && has(sessionRepo, path)) return sessionRepo;
+      const hits = this.repos.filter((r) => this.views.has(r.name) && has(r.name, path));
+      return hits.length === 1 ? hits[0]!.name : sessionRepo;
+    };
+    // A cited range running a little past the end of the file (`config/app.php:1-10` for 6 lines) ends at its last line.
+    const lastLine = (repoName: string | undefined, path: string) => {
+      const view = this.views.get(repoName ?? this.targetRepo.name);
+      try { return view?.file(view.guard(path))?.lines; } catch { return undefined; }
+    };
+    const submitTools = args.submitTools.map((t) => ({
+      ...t,
+      normalize: (a: unknown) => {
+        const own = t.normalize ? t.normalize(a) : a;
+        return clampRefEnds(this.repos.length > 1 ? withRefRepo(own, refRepo) : own, lastLine);
+      },
+    }));
+    const tools = args.submitOnly ? [...submitTools] : [
       ...buildAuditTools({
         ctx: this.toolContext(args.signal, args.stepId, { repo, only }), nonce,
         ...(args.withIndex !== false && this.strategy.tools.ast ? { indexes: indexes as IndexMap } : {}),
@@ -583,7 +664,7 @@ export class AuditRuntime {
           onQuestion: (q) => {
             const id = newId('question');
             this.store.tx(() => {
-              this.store.insert('question', { id, audit_id: this.auditId, step_id: args.stepId, text: q.question, blocking: q.blocking ? 1 : 0, status: 'open' });
+              this.store.insert('question', { id, audit_id: this.auditId, step_id: args.stepId, text: q.question, blocking: q.blocking ? 1 : 0, status: 'open', options: answerOptions(q.options) });
               this.event('question.asked', { question_id: id, text: q.question.slice(0, 500), blocking: q.blocking }, args.stepId);
             });
             return id;
@@ -593,7 +674,7 @@ export class AuditRuntime {
       ...(args.extraTools ?? []).map(guarded),
       ...(factAccess ? [factAccess.tool] : []),
       ...(serviceAccess?.tool ? [serviceAccess.tool] : []),
-      ...args.submitTools,
+      ...submitTools,
     ].filter((t) => !args.noCodeRead || !CODE_READ_TOOLS.has(t.name));
     const threatModel = args.threatModel !== false && THREAT_MODEL_KINDS.has(args.kind) ? this.threatModel() : null;
     const sceneDetail = [args.sceneDetail, this.repoRoster(only ? repo : undefined)].filter(Boolean).join('\n');
@@ -859,11 +940,11 @@ export class AuditRuntime {
     return kept;
   }
 
-  /** the target service's responsibility card in the prompt and service_card for peers, when the project has service boundaries. */
-  private serviceAccess(stepId: string, nonce: string, model: ModelRef, repo = this.targetRepo.name): { tool: AuditTool | null; note: string } | null {
+  /** The target service's responsibility card in the prompt and service_card for peers, when the project has service boundaries. */
+  private serviceAccess(stepId: string, nonce: string, model: ModelRef, repo = this.targetRepo.name, always = false): { tool: AuditTool | null; note: string } | null {
     const gateways = projectGateways(this.store, this.audit.project_id, this.views);
     const trust = effectiveTrust(this.store, this.audit.project_id, gateways);
-    if (trust.value === 'monolith') return null;
+    if (trust.value === 'monolith' && !always) return null;
     const confidential = confidentialAllowed(this.store, model);
     const card = responsibilityCard(this.store, this.audit.project_id, repo, this.indexes.get(repo), gateways, { confidential });
     const peers = this.store.all<{ name: string }>('SELECT name FROM repository WHERE project_id = ? AND removed_at IS NULL AND name != ? ORDER BY name', this.audit.project_id, repo).map((r) => r.name);
@@ -993,4 +1074,33 @@ const THREAT_MODEL_KINDS: ReadonlySet<StepKind> = new Set(['hunt', 'challenge', 
 function summarizeArgs(args: unknown): unknown {
   const s = JSON.stringify(args ?? {});
   return s.length <= 2000 ? args : { truncated: true, preview: s.slice(0, 2000) };
+}
+
+/** How far past the last line a cited end may be and still be read as “to the end of the file”. */
+export const REF_END_SLACK = 20;
+
+/**
+ * A copy of `v` where every code reference whose end lies a little past its file's last line (start inside the file,
+ * at most REF_END_SLACK lines over) ends there; a range far beyond the file stays as it is and is refused.
+ */
+export function clampRefEnds(v: unknown, lastLine: (repo: string | undefined, path: string) => number | undefined): unknown {
+  if (Array.isArray(v)) return v.map((x) => clampRefEnds(x, lastLine));
+  if (!v || typeof v !== 'object') return v;
+  const o = Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, clampRefEnds(x, lastLine)]));
+  if (typeof o.path !== 'string' || typeof o.startLine !== 'number' || typeof o.endLine !== 'number') return o;
+  const last = lastLine(typeof o.repo === 'string' && o.repo ? o.repo : undefined, o.path);
+  return last !== undefined && o.startLine >= 1 && o.startLine <= last && o.endLine > last && o.endLine - last <= REF_END_SLACK ? { ...o, endLine: last } : o;
+}
+
+/**
+ * A copy of `v` where every code reference (`{ path, startLine }`) without a repository names one: `repo`, or what it
+ * returns for the reference's path (left without one when it returns nothing).
+ */
+export function withRefRepo(v: unknown, repo: string | ((path: string) => string | undefined)): unknown {
+  if (Array.isArray(v)) return v.map((x) => withRefRepo(x, repo));
+  if (!v || typeof v !== 'object') return v;
+  const o = Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, withRefRepo(x, repo)]));
+  if (typeof o.path !== 'string' || typeof o.startLine !== 'number' || (o.repo !== undefined && o.repo !== '')) return o;
+  const r = typeof repo === 'string' ? repo : repo(o.path);
+  return r ? { ...o, repo: r } : o;
 }

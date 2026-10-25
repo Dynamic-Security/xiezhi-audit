@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import {
   AppError, AuditStrategy, SCENES, canonicalJson, check, checkStrategy, maskSecret, mergeStrategy, originOf,
-  redact, sceneDefaults, sha256Hex, NO_MODEL_STAGES, type AppConfig, type DiagnosticsDto, type GeneralSettingsDto, type ModelSettingsDto, type ProviderDto,
+  providerReferences, redact, sceneDefaults, sha256Hex, withoutProvider, NO_MODEL_STAGES, type AppConfig, type DiagnosticsDto, type GeneralSettingsDto, type ModelSettingsDto, type ProviderDeleted, type ProviderDto,
   type GitCredentialDto, type Scene, type SessionInfo,
 } from '@xiezhi/contracts';
 import { readLock } from '@xiezhi/store';
@@ -18,11 +18,29 @@ import { sessionCookie } from '../security.js';
 const cfgRev = (v: unknown) => sha256Hex(canonicalJson(v ?? null)).slice(0, 16);
 
 function providerDto(ctx: AppContext, p: AppConfig['modelProviders'][number]): ProviderDto {
+  const confidential = new Set(ctx.store.config.confidentialModels ?? []);
   return {
     id: p.id, api: p.api, baseUrl: p.baseUrl, apiKey: maskSecret(p.apiKey),
-    models: p.models.map((m) => ({ id: m.id, ...(m.name ? { name: m.name } : {}), ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}), ...(m.maxTokens ? { maxTokens: m.maxTokens } : {}), ...(m.reasoning !== undefined ? { reasoning: m.reasoning } : {}) })),
+    models: p.models.map((m) => ({
+      id: m.id, ...(m.name ? { name: m.name } : {}), ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}), ...(m.maxTokens ? { maxTokens: m.maxTokens } : {}),
+      ...(m.reasoning !== undefined ? { reasoning: m.reasoning } : {}), ...(confidential.has(`${p.id}/${m.id}`) ? { confidential: true } : {}),
+      ...(m.images !== undefined ? { images: m.images } : {}),
+    })),
     lastTest: ctx.providerTests.get(p.id) ?? null,
+    references: providerReferences(ctx.store.config, p.id),
   };
+}
+
+type ModelInput = AppConfig['modelProviders'][number]['models'][number] & { confidential?: boolean | undefined };
+/**
+ * The provider form sets “may receive confidential facts” per model; it is kept in the global
+ * `confidentialModels` list the egress filter reads. Replaces this provider's entries; models no longer
+ * listed drop out.
+ */
+function splitConfidential(cfg: AppConfig, providerId: string, models: ModelInput[]): { models: AppConfig['modelProviders'][number]['models']; confidentialModels: string[] } {
+  const others = (cfg.confidentialModels ?? []).filter((k) => !k.startsWith(`${providerId}/`));
+  const mine = models.filter((m) => m.confidential).map((m) => `${providerId}/${m.id}`);
+  return { models: models.map(({ confidential: _c, ...m }) => m), confidentialModels: [...others, ...mine] };
 }
 
 function validBaseUrl(u: string): string {
@@ -94,8 +112,9 @@ export function registerCoreRoutes(app: FastifyInstance, ctx: AppContext): void 
     const cfg = store.config;
     if (cfg.modelProviders.some((p) => p.id === b.id)) throw new AppError('CONFIG_INVALID', `provider ${b.id} exists`);
     const baseUrl = validBaseUrl(b.baseUrl);
-    const next = { id: b.id, api: b.api, baseUrl, models: b.models, ...(b.apiKey ? { apiKey: b.apiKey, apiKeyOrigin: originOf(baseUrl) } : {}) };
-    store.saveConfig({ ...cfg, modelProviders: [...cfg.modelProviders, next] });
+    const split = splitConfidential(cfg, b.id, b.models);
+    const next = { id: b.id, api: b.api, baseUrl, models: split.models, ...(b.apiKey ? { apiKey: b.apiKey, apiKeyOrigin: originOf(baseUrl) } : {}) };
+    store.saveConfig({ ...cfg, modelProviders: [...cfg.modelProviders, next], confidentialModels: split.confidentialModels });
     await ctx.engine.reloadModels();
     reply.code(201);
     return providerDto(ctx, next);
@@ -110,21 +129,27 @@ export function registerCoreRoutes(app: FastifyInstance, ctx: AppContext): void 
     // Empty / omitted key keeps the old one — unless the origin changed: that is a new binding.
     const key = b.apiKey ? b.apiKey : originChanged ? undefined : cur.apiKey;
     const { apiKey: _k, apiKeyOrigin: _o, ...rest } = cur;
-    const next = { ...rest, api: b.api ?? cur.api, baseUrl, models: b.models ?? cur.models, ...(key ? { apiKey: key, apiKeyOrigin: originOf(baseUrl) } : {}) };
-    store.saveConfig({ ...cfg, modelProviders: cfg.modelProviders.map((p) => (p.id === cur.id ? next : p)) });
+    const split = b.models ? splitConfidential(cfg, cur.id, b.models) : null;
+    const next = { ...rest, api: b.api ?? cur.api, baseUrl, models: split?.models ?? cur.models, ...(key ? { apiKey: key, apiKeyOrigin: originOf(baseUrl) } : {}) };
+    store.saveConfig({ ...cfg, modelProviders: cfg.modelProviders.map((p) => (p.id === cur.id ? next : p)), ...(split ? { confidentialModels: split.confidentialModels } : {}) });
     ctx.providerTests.delete(cur.id);
     await ctx.engine.reloadModels();
     return { ...providerDto(ctx, next), keyCleared: originChanged && !b.apiKey && !!cur.apiKey };
   });
-  app.delete<{ Params: { id: string } }>('/api/v1/settings/model-providers/:id', async (req, reply) => {
+  // A provider still named by model settings is deleted only together with those references (the page asks
+  // first and lists them); the config never keeps pointing at a removed provider.
+  app.delete<{ Params: { id: string }; Querystring: { clearReferences?: '1' } }>('/api/v1/settings/model-providers/:id', async (req): Promise<ProviderDeleted> => {
     const cfg = store.config;
     if (!cfg.modelProviders.some((p) => p.id === req.params.id)) throw new AppError('PROVIDER_NOT_FOUND', req.params.id);
-    const refs = [cfg.defaultModel, cfg.fallbackModel, ...Object.values(cfg.stageModels ?? {})].filter((m) => m?.provider === req.params.id);
-    if (refs.length) throw new AppError('CONFIG_INVALID', 'provider is referenced by model settings; change them first');
-    store.saveConfig({ ...cfg, modelProviders: cfg.modelProviders.filter((p) => p.id !== req.params.id) });
+    const refs = providerReferences(cfg, req.params.id);
+    if (refs.length && req.query.clearReferences !== '1') {
+      const names = [...new Set(refs.map((r) => r.label))].join('、');
+      throw new AppError('PROVIDER_IN_USE', `${names}仍在使用该服务的模型，请先在“模型配置”中改掉，或删除时选择一并清除`, { references: refs });
+    }
+    store.saveConfig(withoutProvider(cfg, req.params.id));
+    ctx.providerTests.delete(req.params.id);
     await ctx.engine.reloadModels();
-    reply.code(204);
-    return null;
+    return { cleared: refs };
   });
   /**
    * An unsaved provider form. With `id` and no key in the form, the saved key is reused — but only for the
@@ -265,7 +290,7 @@ export function registerCoreRoutes(app: FastifyInstance, ctx: AppContext): void 
   // ---- general ----
   const general = (): GeneralSettingsDto => {
     const c = store.config;
-    const body = { concurrency: { audits: c.concurrency.audits, modelRequests: c.concurrency.modelRequests }, engine: c.engine, export: c.export, log: c.log, pricing: c.pricing };
+    const body = { concurrency: { audits: c.concurrency.audits, modelRequests: c.concurrency.modelRequests }, engine: c.engine, export: c.export, log: c.log, pricing: c.pricing, tools: c.tools };
     return { ...body, revision: cfgRev(body) };
   };
   app.get('/api/v1/settings/general', async () => general());
@@ -275,10 +300,15 @@ export function registerCoreRoutes(app: FastifyInstance, ctx: AppContext): void 
     const c = store.config;
     // `reportSkill: null` clears the default report skill.
     const { reportSkill, ...exp } = { ...c.export, ...b.export };
+    // `null` clears a tool path: the tool is looked up on PATH again.
+    const tools: Record<string, string> = { ...c.tools };
+    for (const [k, v] of Object.entries(b.tools ?? {})) { if (v === null) delete tools[k]; else if (v !== undefined) tools[k] = v; }
     store.saveConfig({
       ...c, concurrency: { ...c.concurrency, ...b.concurrency }, engine: { ...c.engine, ...b.engine }, export: { ...exp, ...(reportSkill ? { reportSkill } : {}) },
-      log: { ...c.log, ...b.log }, pricing: b.pricing ?? c.pricing,
+      log: { ...c.log, ...b.log }, pricing: b.pricing ?? c.pricing, tools,
     });
+    // The diagnostics page shows whether the tools are found: a changed path is checked again on the next visit.
+    if (b.tools) ctx.doctorCache = null;
     ctx.scheduler.kick();
     return general();
   });

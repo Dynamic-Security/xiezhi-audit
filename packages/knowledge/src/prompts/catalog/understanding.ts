@@ -24,27 +24,12 @@ export const UNDERSTANDING: PromptDef[] = [
   {
     id: 'plan.submit', group: 'step_task', title: '审计计划：提交要求',
     description: '审计计划会话提示的结尾：submit_plan 各字段的要求。',
-    text: '请调用 submit_plan：summary（范围与方法）、focusDirections（重点方向及理由）、plannedKnowledge（计划读取的知识及理由，只能从知识索引中选）、contextNeeded（需要用户补充的上下文，如网关鉴权策略、部署配置）、limitations（已知限制）。',
-  },
-  {
-    id: 'profile.surface.read_by_task', group: 'step_task', title: '项目画像：攻击面位置的读法（系统理解）',
-    description: '系统理解会话（统筹者不直接读代码）中填入 profile.surface 的 {{read}}。',
-    text: '用 task 交给子任务读（子任务回报读到的位置）',
-  },
-  {
-    id: 'profile.surface.read_self', group: 'step_task', title: '项目画像：攻击面位置的读法（单独画像）',
-    description: '单独画像会话中填入 profile.surface 的 {{read}}。',
-    text: '必须用 read 读过',
+    text: '请调用 submit_plan：summary（范围与方法）、focusDirections（重点方向及理由）、plannedKnowledge（计划读取的知识及理由，只能从知识索引中选）、contextNeeded（需要用户补充的上下文，如网关鉴权策略、部署配置：每项写成 question 一个具体问题，并在 options 给 2–4 个贴合这个问题、互斥的简短回答（每个不超过 40 字，如“是，内部服务仅网关可达”“否，部分服务可直接访问”“不确定”），方便用户一键回答；开放式问题可以不给 options）、limitations（已知限制）。',
   },
   {
     id: 'tool.submit_profile', group: 'tool', title: '工具：submit_profile', readonly: '工具与字段说明是引擎与模型之间的契约，只读展示',
-    description: '项目画像 / 系统理解会话的画像提交工具说明。',
-    text: 'Submit the project profile and threat model: tech stack, modules, auth model, trust boundaries, assets, roles, external dependencies, assumptions.',
-  },
-  {
-    id: 'profile.understand.intro', group: 'step_task', title: '系统理解：任务',
-    description: '系统理解会话（画像与威胁建模合并，统筹者通过 task 子任务读代码）任务的开头。',
-    text: '这是系统理解环节：请为这个仓库建立项目画像，并完成下面的威胁建模，供后续审计参考。你负责统筹，不直接读代码：用 list / glob 与结构索引工具（entrypoints、dangerous_sinks、symbol_lookup、callgraph）了解结构，需要读代码时用 task 把一个具体问题交给子任务（例如“鉴权过滤器在哪里、如何校验令牌”“订单的归属如何确定”），子任务会读代码并回报结论与位置。重点看：入口与路由、鉴权/过滤器/拦截器配置、数据访问层、对外调用的客户端、配置文件。不要逐个审查漏洞。',
+    description: '项目画像会话的画像提交工具说明。',
+    text: 'Submit the project profile: tech stack, modules, auth model, trust boundaries, assets, roles, external dependencies, assumptions.',
   },
   {
     id: 'tool.submit_system_model', group: 'tool', title: '工具：submit_system_model', readonly: '工具与字段说明是引擎与模型之间的契约，只读展示',
@@ -67,8 +52,13 @@ export const UNDERSTANDING: PromptDef[] = [
   },
   {
     id: 'profile.intro', group: 'step_task', title: '项目画像：任务',
-    description: '单独的项目画像会话任务的开头。',
-    text: '请为这个仓库建立项目画像与威胁模型，供后续审计员参考。可以用 list / glob / grep / read 以及结构索引工具快速浏览，重点看：入口与路由、鉴权/过滤器/拦截器配置、数据访问层、对外调用的客户端、配置文件。不要逐个审查漏洞。',
+    description: '项目画像会话任务的开头（画像与威胁建模分为两个会话，威胁建模读取这里的画像）。',
+    text: [
+      '请为这个仓库建立项目画像：如实描述系统是什么，供之后的威胁建模与审计员参考。',
+      '先用结构索引工具（entrypoints、dangerous_sinks、symbol_lookup、callgraph）与 list / glob 掌握全貌，再用 grep / read 核实关键位置，重点看：入口与路由、鉴权 / 过滤器 / 拦截器配置、会话与令牌、数据访问层、对外调用的客户端、配置文件。',
+      '鉴权模型与信任边界要落到代码：写明在哪个文件或配置里、怎样校验、哪些路径被排除在外；没有读到的不要写成事实，写进 assumptions。',
+      '不要逐个审查漏洞，也不要列风险或攻击场景。',
+    ].join('\n'),
   },
   {
     id: 'profile.update', group: 'step_task', title: '项目画像：基于上一版本更新',
@@ -77,45 +67,19 @@ export const UNDERSTANDING: PromptDef[] = [
   },
   {
     id: 'profile.surface', group: 'step_task', title: '项目画像：攻击面补充',
-    description: '开启攻击面补全时，要求在画像中补充结构索引规则外的入口与危险点；{{read}} 为位置的读法（profile.surface.read_self 或 profile.surface.read_by_task）。',
+    description: '开启攻击面补全时，要求在画像中补充结构索引规则外的入口与危险点。',
     text: [
       '## 攻击面补充',
       '结构索引只按规则识别入口与危险点，规则外的看不见。请在画像中补充 surface：',
       '- entry：外部可以到达、但结构索引里没有的入口。例如 GraphQL 操作与字段 resolver、WebSocket / SSE 握手与消息处理、消息队列消费者、定时任务、RPC 方法、文件或命令行导入、Webhook 回调。先用 entrypoints 工具查看已识别的入口，只列缺少的；access 写怎样到达（例如“GraphQL mutation deleteShareToken”）。',
       '- sink：结构索引里没有的危险操作。例如把外部值当作查询条件的 ORM 调用、自定义的 SQL 拼接或查询构造、反射调用与动态类加载、模板渲染、文件路径拼接、出站请求、反序列化。先用 dangerous_sinks 工具查看已识别的危险点，只列缺少的；category 写它可能导致的漏洞类别，api 写调用原文（例如“db.Find(&album, albumID)”）。',
-      '每项给出 location（实现它的代码位置，{{read}}）与 why（为什么值得审计）。不要逐个审查漏洞。',
+      '每项给出 location（实现它的代码位置，必须用 read 读过）与 why（为什么值得审计）。不要逐个审查漏洞。',
     ].join('\n'),
   },
   {
     id: 'profile.submit', group: 'step_task', title: '项目画像：提交要求',
     description: '画像提示的结尾：submit_profile 的填写要求。',
     text: '完成后调用 submit_profile。信任边界写明边界两侧是谁、在哪里校验；资产标注敏感度；无法从代码确定的前提写入 assumptions。',
-  },
-  {
-    id: 'profile.understand.threat', group: 'step_task', title: '系统理解：威胁建模部分',
-    description: '系统理解会话中画像之后的威胁建模部分的开头（其后是威胁建模任务 threat.*）。',
-    text: [
-      '# 威胁建模',
-      '画像提交后（或同时），完成下面的威胁建模；其中“必须读过”的位置同样由子任务读。',
-    ].join('\n'),
-  },
-  {
-    id: 'tool.submit_variant_patterns', group: 'tool', title: '工具：submit_variant_patterns', readonly: '工具与字段说明是引擎与模型之间的契约，只读展示',
-    description: '增量审计变体搜索的提交工具说明。',
-    text: 'Submit up to 5 search patterns (ripgrep regex) that find code with the same risky pattern as the one this change fixed or introduced.',
-  },
-  {
-    id: 'feedback.variant.bad_regex', group: 'tool', title: '校验反馈：搜索式不是合法正则', readonly: '校验反馈：提交不合规时返回给模型的说明，只读展示',
-    description: 'submit_variant_patterns 校验：{{i}} 为搜索式下标。',
-    text: 'patterns[{{i}}].grep is not a valid regular expression',
-  },
-  {
-    id: 'scope.variant', group: 'step_task', title: '变体搜索：任务',
-    description: '增量审计的变体搜索会话：把变更中的风险写法抽象成搜索式（其后列出变更 diff）。',
-    text: [
-      '这是增量审计的“变体搜索”：阅读下面的变更，找出其中被修复或新引入的风险写法（例如被改掉的拼接 SQL、被加上的鉴权注解、被移除的校验），把它抽象成能在其他地方找到同类写法的搜索式。',
-      '要求：每个搜索式是 ripgrep 正则，足够具体（不要只匹配一个常见词），针对“仍然存在风险的写法”（修复前的样子或新引入的样子）；可以用 grep 工具先试一下命中情况。没有可抽象的风险写法时提交空列表。',
-    ].join('\n'),
   },
   {
     id: 'scope.diff.new_file', group: 'data_note', title: 'diff：新增文件',
@@ -130,7 +94,7 @@ export const UNDERSTANDING: PromptDef[] = [
   {
     id: 'tool.diff', group: 'tool', title: '工具：diff', readonly: '工具与字段说明是引擎与模型之间的契约，只读展示',
     description: '增量审计会话的 diff 工具说明。',
-    text: 'Incremental audit: without "path", list the files changed between the baseline and the current version; with "path", show that file\'s diff (current-version line numbers).',
+    text: 'Incremental audit: without "path", list the files changed between the baseline and the current version; with "path", show that file\'s diff (current-version line numbers). With several target repositories the list is grouped by repository and "repo" picks the repository of "path".',
   },
   {
     id: 'feedback.surface.other_repo', group: 'tool', title: '校验反馈：攻击面位置不在本仓库', readonly: '校验反馈：提交不合规时返回给模型的说明，只读展示',
@@ -206,12 +170,12 @@ export const UNDERSTANDING: PromptDef[] = [
   {
     id: 'threat.intro.hypotheses', group: 'step_task', title: '威胁建模：任务（风险假设先行）',
     description: '风险假设先行时威胁建模任务的开头。',
-    text: '这是“风险假设先行”的威胁建模环节：先不逐个审查代码，而是结合项目画像与威胁模型，像攻击者一样列出这个仓库可能面临的风险假设，之后会逐条用代码验证。',
+    text: '这是“风险假设先行”的威胁建模环节：先不逐个审查代码，而是以下方的项目画像为起点，像攻击者一样列出这个仓库可能面临的风险假设，之后会逐条用代码验证。',
   },
   {
     id: 'threat.intro.domains', group: 'step_task', title: '威胁建模：任务（风险领域）',
     description: '只划分风险领域、不列风险假设时威胁建模任务的开头。',
-    text: '这是威胁建模环节：先不逐个审查代码，而是结合项目画像与威胁模型，像攻击者一样梳理这个仓库的风险领域与风险点，之后由各领域专家用代码狩猎漏洞。hypotheses 提交空列表。',
+    text: '这是威胁建模环节：先不逐个审查代码，而是以下方的项目画像为起点，像攻击者一样梳理这个仓库的风险领域与风险点，之后由各领域专家用代码狩猎漏洞。hypotheses 提交空列表。',
   },
   {
     id: 'threat.req.heading_hypotheses', group: 'step_task', title: '威胁建模：要求（标题，风险假设）',
@@ -255,13 +219,8 @@ export const UNDERSTANDING: PromptDef[] = [
     text: '- entries 写相关入口（入口 id 或 “METHOD /path”），files 写应从哪些文件开始（不需要已读过）。',
   },
   {
-    id: 'threat.req.read_by_task', group: 'step_task', title: '威胁建模：读代码方式（系统理解）',
-    description: '在系统理解会话中（统筹者通过 task 子任务读代码）。',
-    text: '- 需要读代码时用 task 交给子任务（它会读代码并回报位置），不要在这里下结论；不能确定是否存在的风险也要列出，由验证环节判断。',
-  },
-  {
     id: 'threat.req.read_self', group: 'step_task', title: '威胁建模：读代码方式（单独会话）',
-    description: '单独的威胁建模会话。',
+    description: '威胁建模会话中读代码的方式。',
     text: '- 可以用 list / glob / grep / read 快速浏览确认业务流程，但不要在这里下结论；不能确定是否存在的风险也要列出，由验证环节判断。',
   },
   {

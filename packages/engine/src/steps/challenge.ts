@@ -184,7 +184,9 @@ export async function challengeStep(rt: AuditRuntime, findingId: string, ctx: At
     stepId: ctx.stepId, attempt: ctx.attempt, kind: 'challenge', phase: 'challenge', model, signal: ctx.signal, prompt,
     submitTools: [submit], requiredSubmits: ['submit_challenge'], maxTurns: Math.min(opts.light ? LIGHT_REVIEW_TURNS : 40, rt.strategy.limits.maxTurnsPerStep),
     extraTools: [reasoningTool(detail)],
-    // the evidence lines are audited code — scanned and wrapped in the data boundary after the prompt.
+    // The review works in the finding's repository (its tools and unqualified evidence default to it).
+    ...(loc.repo ? { repo: loc.repo } : {}),
+    // The evidence lines are audited code — scanned and wrapped in the data boundary after the prompt.
     ...(snippets ? { untrustedPrompt: [{ source: 'evidence', text: snippets }] } : {}),
   });
   const err = sessionError(outcome);

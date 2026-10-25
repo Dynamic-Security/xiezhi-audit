@@ -37,6 +37,9 @@ function site(c: Connection) {
   return { repo: c.repo, path: c.site.path, line: c.site.line, ruleId: c.ruleId, key: c.key };
 }
 
+/** The external-service node for calls whose target the analysis could not tell. */
+export const UNKNOWN_EXTERNAL_SERVICE = '未识别的外部服务';
+
 /** Rebuild the AI part of the project topology from one analysis. Runs in a transaction. */
 export function rebuildTopology(store: Store, projectId: string, analysisId: string, conns: Connection[], matches: ConnectionMatch[]): void {
   const byId = new Map(conns.map((c) => [c.connId, c]));
@@ -59,7 +62,7 @@ export function rebuildTopology(store: Store, projectId: string, analysisId: str
         }
         return n.id;
       }
-      const name = external ?? '未识别的外部服务';
+      const name = external ?? UNKNOWN_EXTERNAL_SERVICE;
       let n = nodes.find((x) => !x.repository_id && x.name.toLowerCase() === name.toLowerCase());
       if (!n) {
         n = { id: newId('topologyNode'), kind: 'external_service', name, repository_id: null, origin: 'ai' };

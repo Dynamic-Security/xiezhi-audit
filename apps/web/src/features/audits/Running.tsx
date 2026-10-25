@@ -23,6 +23,7 @@ export const FALLBACK_REASON: Record<string, string> = { MODEL_NOT_FOUND: '模�
 export function ModelBadge({ s }: { s: ExecStepDto }) {
   const f = s.fallback;
   if (f?.degraded) return <span title={`${f.from} ${FALLBACK_REASON[f.reason] ?? f.reason}；备用模型也在交叉审查组里，没有替换，这一路结果缺失`}><Badge tone="warn">交叉审查降级</Badge></span>;
+  if (f?.later) return <span title={`之后原本使用 ${f.from} 的步骤按你的选择改用 ${s.model ?? ''}`}><Badge tone="warn">切换 {s.model ?? ''}</Badge></span>;
   if (f?.manual) return <span title={`${f.from} ${FALLBACK_REASON[f.reason] ?? f.reason}，已按你的选择切换模型重试`}><Badge tone="warn">切换 {s.model ?? ''}</Badge></span>;
   if (f) return <span title={`${f.from} ${FALLBACK_REASON[f.reason] ?? f.reason}，已切换到备用模型`}><Badge tone="warn">备用 {s.model ?? ''}</Badge></span>;
   return s.model ? <span className={E.runModel}>{s.model}</span> : null;
@@ -138,7 +139,7 @@ export function StageQuotaSwitch({ audit }: { audit: AuditDetailDto }) {
       阶段额度
       <Button size="sm" variant="ghost" loading={busy} onClick={() => setConfirm(true)}>取消</Button>
       <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} title="取消阶段额度" confirmText="取消阶段额度" onConfirm={() => void lift()}>
-        本次审计不再按阶段限制 token，之后只受总预算（{fmt.n(audit.budget.effective.tokens)} tokens）限制；不能再恢复。
+        本次审计不再按阶段限制 token，之后只受总预算（{fmt.tokens(audit.budget.effective.tokens)} tokens）限制；不能再恢复。
       </ConfirmDialog>
     </span>
   );

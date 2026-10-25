@@ -19,8 +19,11 @@ export interface RepositoryRow { id: string; project_id: string; name: string; s
 /** repository.source_meta. */
 export interface SourceMeta { fileName?: string; rootHash?: string; headCommit?: string; defaultBranch?: string }
 
+/** A project name: 1–100 letters, digits, space, dot, dash or underscore, starting with a letter or digit. */
+export const PROJECT_NAME = /^[\p{L}\p{N}][\p{L}\p{N}._ -]{0,99}$/u;
+
 export function createProject(store: Store, name: string): ProjectRow {
-  if (!/^[\p{L}\p{N}][\p{L}\p{N}._ -]{0,99}$/u.test(name)) throw new AppError('CONFIG_INVALID', 'project name must be 1–100 letters, digits, space, dot, dash or underscore');
+  if (!PROJECT_NAME.test(name)) throw new AppError('CONFIG_INVALID', 'project name must be 1–100 letters, digits, space, dot, dash or underscore');
   if (store.get('SELECT id FROM project WHERE name = ?', name)) throw new AppError('PROJECT_EXISTS', name);
   const id = newId('project');
   store.insert('project', { id, name, status: 'active' });
@@ -191,6 +194,11 @@ export function scanLocalRustBackend(root: string, cap = 50): boolean {
   return found;
 }
 
+/** Languages of a census, most files first (ties by name): the list shows the main language before markup and config. */
+export function languagesBySize(languages: Record<string, number>): string[] {
+  return Object.entries(languages).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([l]) => l);
+}
+
 /**
  * Auditable or context repository from a language census. `jsBackend` / `rustBackend` null = unknown
  * (remote / archive listings have no file contents): a JS / TS- or Rust-only repository stays context until the first
@@ -222,7 +230,7 @@ export function addRepository(store: Store, projectId: string, opts: AddReposito
     if (opts.auditable === undefined) {
       const langs = scanLocalLanguages(uri);
       const a = auditableFrom(langs, scanLocalJsBackend(uri), scanLocalRustBackend(uri));
-      opts = { ...opts, auditable: a.auditable, auditableReason: a.note, languages: Object.keys(langs).sort() };
+      opts = { ...opts, auditable: a.auditable, auditableReason: a.note, languages: languagesBySize(langs) };
     } else if (opts.auditable === false && opts.auditableReason === undefined) {
       // From a probe (server): the probe's verdict stands; record why for the repository list.
       opts = { ...opts, auditableReason: auditableFrom(scanLocalLanguages(uri), scanLocalJsBackend(uri), scanLocalRustBackend(uri)).note };
@@ -290,7 +298,7 @@ export async function addGitRepository(store: Store, executor: Executor, project
   }
   return addRepository(store, projectId, {
     git: remote.url, ...(opts.allowFileRemotes ? { allowFileRemotes: true } : {}), defaultBranch, ...(opts.ref ? { ref: opts.ref } : {}), ...(opts.name ? { name: opts.name } : {}),
-    ...(languages ? (() => { const a = auditableFrom(languages!, null); return { languages: Object.keys(languages!).sort(), auditable: a.auditable, auditableReason: a.note }; })() : {}),
+    ...(languages ? (() => { const a = auditableFrom(languages!, null); return { languages: languagesBySize(languages!), auditable: a.auditable, auditableReason: a.note }; })() : {}),
   });
 }
 
@@ -381,6 +389,10 @@ export interface CreateAuditInput {
   conversationId?: string;
   /** Incremental: compare against this ref of the repository (snapshotted during planning). */
   baseRef?: string;
+  /** Multi-repository incremental: baseline ref per target (name or id); others use their latest finished audit. */
+  baseRefs?: Record<string, string>;
+  /** Multi-repository incremental, rerun only: baseline snapshot per target id; null = no baseline (audited in full). */
+  baseSnapshots?: Record<string, string | null>;
   /** Incremental: compare against the version this earlier audit reviewed. Default: the latest finished audit. */
   baseAuditId?: string;
   /** Start as soon as the plan is ready (form default and conversation cards); otherwise wait for confirmation. */
@@ -589,7 +601,6 @@ export function createAudit(store: Store, knownModels: Set<string>, input: Creat
   const attached: { repo: RepositoryRow; role: 'target' | 'related' | 'context' }[] = [];
   let target: RepositoryRow;
   if (mode === 'multi') {
-    if (input.scene !== 'full') throw new AppError('CONFIG_INVALID', 'multi-repository audits are full audits; incremental audits take one target repository (plus related repositories)');
     const targets = input.repositories?.length ? [...new Set(input.repositories)].map((k) => find(k, repos)) : repos;
     if (targets.length < 2) throw new AppError('CONFIG_INVALID', 'a multi-repository audit needs at least two auditable repositories; use a single-repository audit');
     for (const r of targets) attached.push({ repo: r, role: 'target' });
@@ -616,26 +627,56 @@ export function createAudit(store: Store, knownModels: Set<string>, input: Creat
   if (input.ref !== undefined && (input.ref.startsWith('-') || /[\s\0]/.test(input.ref))) throw new AppError('CONFIG_INVALID', 'invalid ref');
   if (target.source_kind === 'archive' && (input.ref || input.baseRef)) throw new AppError('CONFIG_INVALID', 'an uploaded archive has no branches or commits; choose the baseline by audit instead');
   if (input.baseRef !== undefined && (input.baseRef.startsWith('-') || /[\s\0]/.test(input.baseRef) || !input.baseRef)) throw new AppError('CONFIG_INVALID', 'invalid base ref');
+  for (const [k, v] of Object.entries(input.baseRefs ?? {})) {
+    if (v.startsWith('-') || /[\s\0]/.test(v) || !v) throw new AppError('CONFIG_INVALID', `invalid base ref for ${k}`);
+  }
 
   // Incremental baseline: an explicit ref, an explicit earlier audit, or by
   // default the version the latest finished audit of this repository reviewed.
-  let base: { auditId: string | null; snapshotId: string | null; ref: string | null } | null = null;
-  if (input.scene === 'incremental') {
-    if (input.baseRef) base = { auditId: null, snapshotId: null, ref: input.baseRef };
+  type Base = { auditId: string | null; snapshotId: string | null; ref: string | null };
+  const bases = new Map<string, Base | null>();
+  const auditSnapshot = (auditId: string, repositoryId: string) => store.get<{ snapshot_id: string | null }>(
+    `SELECT ar.snapshot_id FROM audit a JOIN audit_repository ar ON ar.audit_id = a.id WHERE a.id = ? AND a.project_id = ? AND ar.repository_id = ?`,
+    auditId, project.id, repositoryId)?.snapshot_id ?? null;
+  if (input.scene !== 'incremental') {
+    if (input.baseRef || input.baseAuditId || input.baseRefs || input.baseSnapshots) throw new AppError('CONFIG_INVALID', 'a baseline only applies to incremental audits');
+  } else if (mode === 'multi') {
+    // Each target has its own baseline — its ref, the given audit's version of it, or its latest finished audit;
+    // a target with none (a new service of the release) is audited in full.
+    if (input.baseRef) throw new AppError('CONFIG_INVALID', 'baseRef is for single-repository audits; give a multi-repository audit baseRefs per repository');
+    const targets = attached.filter((a) => a.role === 'target').map((a) => a.repo);
+    for (const k of Object.keys(input.baseRefs ?? {})) {
+      const r = find(k, all);
+      if (!targets.some((t) => t.id === r.id)) throw new AppError('CONFIG_INVALID', `${k} is not a target of this audit`);
+      if (r.source_kind === 'archive') throw new AppError('CONFIG_INVALID', `${r.name} is an uploaded archive and has no branches or commits`);
+    }
+    for (const t of targets) {
+      const ref = Object.entries(input.baseRefs ?? {}).find(([k]) => k === t.name || k === t.id)?.[1];
+      const given = input.baseSnapshots && t.id in input.baseSnapshots ? input.baseSnapshots[t.id] : undefined;
+      const fromAudit = input.baseAuditId ? auditSnapshot(input.baseAuditId, t.id) : null;
+      const latest = ref || given !== undefined || fromAudit ? null : latestBaseline(store, project.id, t.id);
+      bases.set(t.id, ref ? { auditId: null, snapshotId: null, ref }
+        : given !== undefined ? (given ? { auditId: null, snapshotId: given, ref: null } : null)
+          : fromAudit ? { auditId: input.baseAuditId!, snapshotId: fromAudit, ref: null }
+            : latest ? { auditId: latest.auditId, snapshotId: latest.snapshotId, ref: null } : null);
+    }
+    if ([...bases.values()].every((b) => !b)) throw new AppError('AUDIT_BASELINE_UNAVAILABLE', 'none of the repositories has a finished audit or a base ref; run a full audit first or specify base refs');
+  } else {
+    if (input.baseRefs || input.baseSnapshots) throw new AppError('CONFIG_INVALID', 'baseRefs is for multi-repository incremental audits; use baseRef');
+    if (input.baseRef) bases.set(target.id, { auditId: null, snapshotId: null, ref: input.baseRef });
     else if (input.baseAuditId) {
-      const b = store.get<{ snapshot_id: string | null; status: string }>(
-        `SELECT ar.snapshot_id, a.status FROM audit a JOIN audit_repository ar ON ar.audit_id = a.id WHERE a.id = ? AND a.project_id = ? AND ar.repository_id = ?`,
-        input.baseAuditId, project.id, target.id);
-      if (!b?.snapshot_id) throw new AppError('AUDIT_BASELINE_UNAVAILABLE', 'the baseline audit did not snapshot this repository');
-      base = { auditId: input.baseAuditId, snapshotId: b.snapshot_id, ref: null };
+      const snapshotId = auditSnapshot(input.baseAuditId, target.id);
+      if (!snapshotId) throw new AppError('AUDIT_BASELINE_UNAVAILABLE', 'the baseline audit did not snapshot this repository');
+      bases.set(target.id, { auditId: input.baseAuditId, snapshotId, ref: null });
     } else {
       const latest = latestBaseline(store, project.id, target.id);
       if (!latest) throw new AppError('AUDIT_BASELINE_UNAVAILABLE', 'no finished audit of this repository yet; run a full audit first or specify a base ref');
-      base = { auditId: latest.auditId, snapshotId: latest.snapshotId, ref: null };
+      bases.set(target.id, { auditId: latest.auditId, snapshotId: latest.snapshotId, ref: null });
     }
-  } else if (input.baseRef || input.baseAuditId) {
-    throw new AppError('CONFIG_INVALID', 'a baseline only applies to incremental audits');
   }
+  // The audit's baseline audit: the one every baseline came from (targets of a multi-repository audit may differ).
+  const baseAudits = new Set([...bases.values()].filter((b) => b).map((b) => b!.auditId));
+  const baseAuditId = baseAudits.size === 1 ? [...baseAudits][0] ?? null : null;
 
   const models = modelDefaults(store.config);
   const system = sceneDefaults(input.scene, models);
@@ -656,16 +697,17 @@ export function createAudit(store: Store, knownModels: Set<string>, input: Creat
       id, project_id: project.id, scene: input.scene, mode, title: input.title ?? `${input.scene === 'incremental' ? '增量审计' : '全量审计'} · ${attached.filter((a) => a.role === 'target').map((a) => a.repo.name).join(', ')}`,
       status: 'planning', strategy_draft: s, strategy_sources: merged.sources,
       scope: { include: s.scope.include, exclude: s.scope.exclude, focus: s.focus }, budget_initial: budget, budget_effective: budget,
-      budget_consumed: { tokens: 0, durationMs: 0, costMicros: 0 }, origin: input.origin, conversation_id: (input as { conversationId?: string }).conversationId ?? null, base_audit_id: base?.auditId ?? null,
+      budget_consumed: { tokens: 0, durationMs: 0, costMicros: 0 }, origin: input.origin, conversation_id: (input as { conversationId?: string }).conversationId ?? null, base_audit_id: baseAuditId,
       auto_start: input.autoStart ? 1 : 0,
     });
     const refOf = (r: RepositoryRow) => Object.entries(input.refs ?? {}).find(([k]) => k === r.name || k === r.id)?.[1];
     for (const a of attached) {
       const isTarget = a.repo.id === target.id;
+      const base = bases.get(a.repo.id);
       store.insert('audit_repository', {
         audit_id: id, repository_id: a.repo.id, role_in_audit: a.role,
         requested_ref: (isTarget ? input.ref : undefined) ?? refOf(a.repo) ?? a.repo.default_ref,
-        base_snapshot_id: isTarget ? base?.snapshotId ?? null : null, base_requested_ref: isTarget ? base?.ref ?? null : null,
+        base_snapshot_id: base?.snapshotId ?? null, base_requested_ref: base?.ref ?? null,
       });
     }
     store.appendEvent(id, 'audit.status_changed', { from: null, to: 'planning', reason: 'created' });

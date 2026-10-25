@@ -72,6 +72,8 @@ export const ProjectExportQuery = Q({
 export const HuntExportQuery = Q({ format: Opt(Enum(['md', 'html', 'json'], '导出格式，默认 md')) });
 /** DELETE of a skill or sub-file: the content hash the user saw (or If-Match). */
 export const DeleteSkillQuery = Q({ baseSha256: Opt(Type.String({ pattern: '^[0-9a-f]{64}$', description: '删除前看到的内容哈希（也可用 If-Match）' })) });
+/** DELETE of a model provider: `clearReferences=1` also clears the model settings that name it. */
+export const ProviderDeleteQuery = Q({ clearReferences: Opt(Enum(['1'], '同时清除引用该服务的模型配置（默认模型、备用模型、各阶段模型等）')) });
 export const KnowledgeDraftsQuery = Q({ projectId: Opt(Str('项目层草稿', 100)), all: Opt(Enum(['1'], '含已启用与已驳回的草稿')) });
 
 // Conversations.

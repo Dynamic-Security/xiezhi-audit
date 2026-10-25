@@ -3,13 +3,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AuditCompareDto, AuditDetailDto, ModelRef } from '@xiezhi/contracts';
+import type { AuditCompareDto, AuditDetailDto, FilteredStepDto, ModelRef, StepDto } from '@xiezhi/contracts';
 import { api, newIdempotencyKey } from '../../shared/api/client';
 import { useAudit, useAudits, useFindings, useModelSettings, usePlan, useProviders, useQuestions } from '../../shared/api/queries';
 import { useAuditStream } from '../../shared/stream/streams';
-import { BUDGET_STAGE, PARTIAL_REASON, PHASE, PHASE_ORDER, SCENE, fmt } from '../../shared/format/messages';
+import { BUDGET_STAGE, PARTIAL_REASON, PHASE, PHASE_ORDER, SCENE, fmt, reasonsLabel } from '../../shared/format/messages';
+import { TOP_UP_TOKENS_MAX, TOP_UP_TOKENS_MIN } from '../../shared/format/tokens';
 import {
-  AuditStatusBadge, Badge, Button, ConfirmDialog, Dialog, ErrorState, Field, Icon, Loading, Progress, Tabs, TokenCostHint, cx, ui, useToast,
+  AuditStatusBadge, Badge, Button, ConfirmDialog, Dialog, ErrorState, Field, Icon, Loading, Progress, Tabs, TokenCostHint, TokenInput, cx, ui, useToast,
 } from '../../shared/ui';
 import type { AuditSearch } from '../../router';
 import { PageLayout, TopBar } from '../layout/AppShell';
@@ -27,10 +28,13 @@ const TERMINAL = ['completed', 'partial', 'failed', 'cancelled'];
 function PhaseBar({ a }: { a: AuditDetailDto }) {
   if (a.status === 'planning' || a.status === 'awaiting_confirm') return null;
   const cur = PHASE_ORDER.indexOf(a.phase as never);
+  // An audit that ended without ever running (cancelled at its plan) went through none of the phases.
+  const neverRan = a.phase === 'done' && !a.startedAt;
   return (
     <ol className={A.phases} aria-label="阶段">
       {PHASE_ORDER.map((p, i) => {
-        const state = a.phase === 'done' ? (a.status === 'completed' ? 'done' : i === PHASE_ORDER.length - 1 ? 'warn' : 'done') : i < cur ? 'done' : i === cur ? 'cur' : 'todo';
+        const last = i === PHASE_ORDER.length - 1;
+        const state = a.phase === 'done' ? (a.status === 'completed' ? 'done' : last ? 'warn' : neverRan ? 'todo' : 'done') : i < cur ? 'done' : i === cur ? 'cur' : 'todo';
         return (
           <li key={p} className={cx(A.phase, A[`phase_${state}`])}>
             <span className={A.phaseDot}>{state === 'done' ? <Icon name="check" size={11} /> : null}</span>
@@ -44,9 +48,10 @@ function PhaseBar({ a }: { a: AuditDetailDto }) {
 
 function BudgetDialog({ a, open, onClose }: { a: AuditDetailDto; open: boolean; onClose: () => void }) {
   const remaining = Math.max(0, a.budget.consumed.tokens - a.budget.effective.tokens);
-  const fallback = Math.max(50_000, Math.ceil((remaining + a.budget.effective.tokens * 0.3) / 10_000) * 10_000);
-  /** the server's suggestion covers the usage past the limit and the steps not run yet. */
-  const round = (n: number) => Math.max(10_000, Math.ceil(n / 10_000) * 10_000);
+  /** The server's suggestion covers the usage past the limit and the steps not run yet. Rounded up
+   * to 0.1M and kept inside the top-up range. */
+  const round = (n: number) => Math.min(TOP_UP_TOKENS_MAX, Math.max(TOP_UP_TOKENS_MIN, Math.ceil(n / 100_000) * 100_000));
+  const fallback = round(remaining + a.budget.effective.tokens * 0.3);
   const [tokens, setTokens] = useState(fallback);
   const [minutes, setMinutes] = useState(0);
   // a stage that used up its quota is offered first; '' = the total only.
@@ -57,7 +62,8 @@ function BudgetDialog({ a, open, onClose }: { a: AuditDetailDto; open: boolean; 
   // the user chose or typed. Suggestions fill in on opening and when the user picks another stage, until edited.
   const stageEdited = useRef(false);
   const tokensEdited = useRef(false);
-  useEffect(() => { if (open) { stageEdited.current = false; tokensEdited.current = false; } }, [open]);
+  // Cleared on closing, not on opening: an opening effect could run after the first keystroke and drop it.
+  useEffect(() => { if (!open) { stageEdited.current = false; tokensEdited.current = false; } }, [open]);
   useEffect(() => { if (open && !stageEdited.current) setStage(stoppedStage); }, [open, stoppedStage]);
   useEffect(() => {
     if (!open || tokensEdited.current) return;
@@ -65,6 +71,9 @@ function BudgetDialog({ a, open, onClose }: { a: AuditDetailDto; open: boolean; 
     const s = stage ? own : a.budget.suggestedTopUp;
     setTokens(s ? round(s) : fallback);
   }, [open, stage, a.budget.suggestedTopUp]);
+  // The API takes 1–10000M per top-up and whole minutes up to 7 days; say so here rather than after a 400.
+  const tokensError = tokens < TOP_UP_TOKENS_MIN || tokens > TOP_UP_TOKENS_MAX ? `每次追加 ${fmt.tokens(TOP_UP_TOKENS_MIN)}–${fmt.tokens(TOP_UP_TOKENS_MAX)}` : null;
+  const minutesError = !Number.isInteger(minutes) || minutes < 0 || minutes > 7 * 24 * 60 ? '时长为 0–10080 的整数分钟（最多 7 天）' : null;
   const [key] = useState(newIdempotencyKey);
   const [busy, setBusy] = useState(false);
   // the audit's frozen strategy names the model whose price the cost hint uses.
@@ -96,14 +105,14 @@ function BudgetDialog({ a, open, onClose }: { a: AuditDetailDto; open: boolean; 
   return (
     <Dialog open={open} onClose={onClose} title="追加预算" footer={<><Button onClick={onClose}>取消</Button>
       {stoppedStage && <Button loading={busy} onClick={() => void lift()} title="取消本次审计的全部阶段额度，之后只受总 token 预算限制">取消阶段额度并继续</Button>}
-      <Button variant="primary" loading={busy} disabled={tokens < 1} onClick={() => void grant()}>追加并继续</Button></>}>
-      <p className={ui.muted}>已用 {fmt.n(a.budget.consumed.tokens)} / {fmt.n(a.budget.effective.tokens)} tokens。追加后审计从断点继续：已完成的步骤不重复，停下的会话从停下的地方接着做。</p>
+      <Button variant="primary" loading={busy} disabled={!!tokensError || !!minutesError} onClick={() => void grant()}>追加并继续</Button></>}>
+      <p className={ui.muted}>已用 {fmt.tokens(a.budget.consumed.tokens)} / {fmt.tokens(a.budget.effective.tokens)} tokens。追加后审计从断点继续：已完成的步骤不重复，停下的会话从停下的地方接着做。</p>
       {stages.length > 0 && (
         <div className={ui.stack} style={{ gap: 4, margin: '8px 0 12px' }}>
           {stages.map((x) => (
             <div key={x.stage} className={ui.spread} style={{ fontSize: 13 }}>
               <span>{BUDGET_STAGE[x.stage] ?? x.stage}</span>
-              <span className={ui.mono} style={{ color: x.stopped ? 'var(--danger)' : undefined }}>{fmt.n(x.consumed)} / {fmt.n(x.limit)}{x.stopped ? ' · 额度不足' : ''}</span>
+              <span className={ui.mono} style={{ color: x.stopped ? 'var(--danger)' : undefined }}>{fmt.tokens(x.consumed)} / {fmt.tokens(x.limit)}{x.stopped ? ' · 额度不足' : ''}</span>
             </div>
           ))}
         </div>
@@ -117,8 +126,8 @@ function BudgetDialog({ a, open, onClose }: { a: AuditDetailDto; open: boolean; 
             </select>
           </Field>
         )}
-        <Field label="追加 tokens" hint={<TokenCostHint tokens={tokens} model={plan.data?.strategy.models.audit} />}><input className={ui.input} type="number" min={1} step={10000} value={tokens} onChange={(e) => { tokensEdited.current = true; setTokens(Number(e.target.value)); }} /></Field>
-        <Field label="追加时长（分钟，可选）"><input className={ui.input} type="number" min={0} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} /></Field>
+        <Field label="追加 tokens" error={tokensError} hint={<>{fmt.tokens(TOP_UP_TOKENS_MIN)}–{fmt.tokens(TOP_UP_TOKENS_MAX)} · <TokenCostHint tokens={tokens} model={plan.data?.strategy.models.audit} /></>}><TokenInput value={tokens} onChange={(t) => { tokensEdited.current = true; setTokens(t || 0); }} /></Field>
+        <Field label="追加时长（分钟，可选）" error={minutesError}><input className={ui.input} type="number" min={0} max={10080} step={1} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} /></Field>
       </div>
     </Dialog>
   );
@@ -144,7 +153,7 @@ function Header({ a, onExport }: { a: AuditDetailDto; onExport: () => void }) {
       <PhaseBar a={a} />
       <div className={A.meters}>
         <div className={A.meter}>
-          <div className={ui.spread}><span className={ui.faint}>tokens</span><span><b>{fmt.compact(b.consumed.tokens)}</b> / {fmt.compact(b.effective.tokens)}</span></div>
+          <div className={ui.spread}><span className={ui.faint}>tokens</span><span><b>{fmt.tokens(b.consumed.tokens)}</b> / {fmt.tokens(b.effective.tokens)}</span></div>
           <Progress value={b.consumed.tokens} max={b.effective.tokens} {...(ratio > 1 ? { tone: 'danger' as const } : ratio > 0.8 ? { tone: 'warn' as const } : {})} />
         </div>
         <div className={A.meter}>
@@ -154,7 +163,7 @@ function Header({ a, onExport }: { a: AuditDetailDto; onExport: () => void }) {
         <div className={A.meterSmall}><span className={ui.faint}>成本</span><b>{fmt.cost(b.consumed.costMicros)}</b></div>
         <div className={A.meterSmall}><span className={ui.faint}>发现</span><b>{a.findingCount}</b></div>
       </div>
-      {a.partialReasons.length > 0 && <div className={cx(ui.row, ui.wrap)} style={{ marginTop: 10 }}><span className={ui.faint} style={{ fontSize: 12 }}>未完成原因：</span>{a.partialReasons.map((r) => <Badge key={r} tone="warn">{PARTIAL_REASON[r] ?? r}</Badge>)}</div>}
+      {a.partialReasons.length > 0 && <div className={cx(ui.row, ui.wrap)} style={{ marginTop: 10 }}><span className={ui.faint} style={{ fontSize: 12 }}>{reasonsLabel(a.status)}：</span>{a.partialReasons.map((r) => <Badge key={r} tone="warn">{PARTIAL_REASON[r] ?? r}</Badge>)}</div>}
     </div>
   );
 }
@@ -211,32 +220,50 @@ function CompareButton({ a }: { a: AuditDetailDto }) {
 
 const THINKING_OPTS: [NonNullable<ModelRef['thinking']> | '', string][] = [['', '默认'], ['off', '关'], ['low', '低'], ['medium', '中'], ['high', '高']];
 
+type SwitchScope = 'filtered' | 'later';
+
 /**
  * “切换模型重试”: the content-filtered steps continue on a model the user picks — preselected: the fallback model
  * from 设置 › 模型 (unless it is the model that was refused), else the first other configured model.
  */
-function SwitchModelDialog({ open, onClose, current, onConfirm }: { open: boolean; onClose: () => void; current: string[]; onConfirm: (m: ModelRef) => void }) {
+function SwitchModelDialog({ open, onClose, refused, count, onConfirm }: { open: boolean; onClose: () => void; refused: string[]; count: number; onConfirm: (m: ModelRef, scope: SwitchScope) => void }) {
   const providers = useProviders();
   const ms = useModelSettings();
   const all = (providers.data ?? []).flatMap((p) => p.models.map((m) => `${p.id}/${m.id}`));
   const fb = ms.data?.fallbackModel ?? null;
   const fbKey = fb ? `${fb.provider}/${fb.model}` : '';
-  const initial = fb && all.includes(fbKey) && !current.includes(fbKey) ? fbKey : all.find((m) => !current.includes(m)) ?? all[0] ?? '';
+  const initial = fb && all.includes(fbKey) && !refused.includes(fbKey) ? fbKey : all.find((m) => !refused.includes(m)) ?? all[0] ?? '';
   const [model, setModel] = useState('');
   const [thinking, setThinking] = useState<string>('');
-  useEffect(() => { if (open) { setModel(initial); setThinking(initial === fbKey ? fb?.thinking ?? '' : ''); } }, [open, initial]);
+  const [scope, setScope] = useState<SwitchScope>('later');
+  useEffect(() => { if (open) { setModel(initial); setThinking(initial === fbKey ? fb?.thinking ?? '' : ''); setScope('later'); } }, [open, initial]);
   const confirm = () => {
     const i = model.indexOf('/');
-    onConfirm({ provider: model.slice(0, i), model: model.slice(i + 1), ...(thinking ? { thinking: thinking as NonNullable<ModelRef['thinking']> } : {}) });
+    onConfirm({ provider: model.slice(0, i), model: model.slice(i + 1), ...(thinking ? { thinking: thinking as NonNullable<ModelRef['thinking']> } : {}) }, scope);
   };
+  const names = refused.join('、') || '未知';
+  const hint = !fbKey ? '还没有配置备用模型，可在“设置 › 模型”中配置'
+    : refused.includes(fbKey) ? `备用模型 ${fbKey} 也被拦截过，默认改选其他模型` : `默认选中备用模型 ${fbKey}`;
+  const SCOPES: [SwitchScope, string, string][] = [
+    ['later', '被拦截的步骤和之后的步骤', `这 ${count} 个步骤从停下的地方接着做；之后原本使用 ${names} 的步骤也都改用所选模型。交叉审查中所选模型已是另一路时，那一路不切换。`],
+    ['filtered', '只切换被拦截的步骤', `这 ${count} 个步骤改用所选模型，从停下的地方接着做；其他步骤仍用原来的模型，再被拦截时会再次暂停。`],
+  ];
   return (
     <Dialog open={open} onClose={onClose} title="切换模型重试" footer={<><Button onClick={onClose}>取消</Button><Button variant="primary" icon="play" disabled={!model} onClick={confirm}>切换并继续</Button></>}>
       <div className={ui.stack}>
-        <p className={ui.muted} style={{ margin: 0 }}>被拦截的步骤改用所选模型，从停下的地方接着做；其他步骤不受影响。被拦截的模型：{current.join('、') || '未知'}</p>
+        <p className={ui.muted} style={{ margin: 0 }}>本次审计被拦截的模型：{names}</p>
+        <div className={ui.stack} style={{ gap: 6 }} role="radiogroup" aria-label="切换范围">
+          {SCOPES.map(([k, label, note]) => (
+            <label key={k} className={ui.checkbox} style={{ alignItems: 'flex-start' }}>
+              <input type="radio" name="switch-scope" checked={scope === k} onChange={() => setScope(k)} />
+              <span><b>{label}</b><span className={ui.faint} style={{ fontSize: 12, display: 'block' }}>{note}</span></span>
+            </label>
+          ))}
+        </div>
         <div className={ui.row} style={{ gap: 8, alignItems: 'flex-end' }}>
-          <div className={ui.grow}><Field label="模型" hint={fbKey ? `默认选中备用模型 ${fbKey}` : '还没有配置备用模型，可在“设置 › 模型”中配置'}>
+          <div className={ui.grow}><Field label="模型" hint={hint}>
             <select aria-label="切换到的模型" className={ui.select} value={model} onChange={(e) => setModel(e.target.value)}>
-              {all.map((m) => <option key={m} value={m}>{m}{m === fbKey ? '（备用模型）' : ''}{current.includes(m) ? '（被拦截）' : ''}</option>)}
+              {all.map((m) => <option key={m} value={m}>{m}{m === fbKey ? '（备用模型）' : ''}{refused.includes(m) ? '（被拦截）' : ''}</option>)}
             </select>
           </Field></div>
           <div style={{ width: 110, alignSelf: 'flex-start' }}><Field label="思考强度">
@@ -247,6 +274,54 @@ function SwitchModelDialog({ open, onClose, current, onConfirm }: { open: boolea
         </div>
       </div>
     </Dialog>
+  );
+}
+
+/** The switches the user chose for later steps, shown with the content-filter banners. */
+function ModelSwitches({ a }: { a: AuditDetailDto }) {
+  if (!a.modelSwitches.length) return null;
+  return <div style={{ marginTop: 6, fontSize: 12 }}>之后的步骤已切换：{a.modelSwitches.map((x) => `${x.from} → ${x.to.provider}/${x.to.model}`).join('；')}</div>;
+}
+
+/** The refused steps — which provider/model refused each, and on demand what was sent and what came back. */
+function FilteredSteps({ auditId, steps }: { auditId: string; steps: StepDto[] }) {
+  const models = [...new Set(steps.map((s) => s.model ?? '未知模型'))];
+  return (
+    <div style={{ marginTop: 6, fontSize: 12 }}>
+      <div>被拦截的模型：<b>{models.join('、')}</b></div>
+      <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{steps.map((s) => <FilteredStep key={s.id} auditId={auditId} s={s} />)}</ul>
+    </div>
+  );
+}
+
+const ROLE: Record<string, string> = { user: '发送（任务 / 用户消息）', toolResult: '发送（工具结果）', assistant: '模型回复', system: '系统提示' };
+
+function FilteredStep({ auditId, s }: { auditId: string; s: StepDto }) {
+  const [open, setOpen] = useState(false);
+  const q = useQuery({ queryKey: ['audit', auditId, 'filtered', s.id, s.attempt], queryFn: () => api.get<FilteredStepDto>(`/audits/${auditId}/steps/${s.id}/filtered`), enabled: open });
+  const pre = { margin: '4px 0 8px', padding: 8, maxHeight: 240, overflow: 'auto', whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, background: 'var(--bg-code)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)', fontSize: 12 };
+  return (
+    <li>
+      <span>{s.lineage ?? s.kind} · <code>{s.model ?? '未知模型'}</code>：{(s.errorSummary ?? '').slice(0, 120)}</span>
+      {' '}<Button size="sm" variant="ghost" onClick={() => setOpen(!open)}>{open ? '收起' : '查看拦截详情'}</Button>
+      {open && (
+        <div style={{ marginTop: 4 }}>
+          {q.isLoading && <div className={ui.muted}>读取中…</div>}
+          {q.error && <div className={ui.muted}>读取失败：{String((q.error as Error).message)}</div>}
+          {q.data && (<>
+            <div><b>服务返回</b>{q.data.reply?.model ? `（${q.data.reply.model}）` : ''}</div>
+            <pre style={pre}>{q.data.reply ? [q.data.reply.text, q.data.reply.errorMessage].filter(Boolean).join('\n\n') : q.data.error ?? '没有记录'}</pre>
+            <div><b>拦截前发送的最后 {q.data.request.length} 条消息</b>（第 {q.data.attempt} 次尝试；被审代码与文档原样展示，只作查看）</div>
+            {q.data.request.length ? q.data.request.map((m, i) => (
+              <div key={i}>
+                <div className={ui.muted}>{ROLE[m.role] ?? m.role}{m.chars > m.text.length ? `（共 ${m.chars} 字，显示前 ${m.text.length} 字）` : `（${m.chars} 字）`}</div>
+                <pre style={pre}>{m.text}</pre>
+              </div>
+            )) : <div className={ui.muted}>没有保存的会话记录（可能已选择“从头开始”）</div>}
+          </>)}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -278,14 +353,31 @@ function StatusBanner({ a }: { a: AuditDetailDto }) {
   if ((a.status === 'interrupted' || a.status === 'paused') && filtered.length) {
     return (
       <div className={cx(A.banner, A.bannerWarn)}>
-        <Icon name="pause" /><div className={ui.grow}><b>审计已暂停：{filtered.length} 个步骤被模型的内容过滤拦截。</b> 安全审计内容有时会被误判。可以切换到另一个模型接着做，也可以让这些步骤从头开始一次新的对话，或原样重试。配置了备用模型时，被拦截会先自动切换一次；备用模型也被拦截或与被拦截的模型相同时才停下来。
-          <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>{filtered.map((s) => <li key={s.id}>{s.lineage ?? s.kind}：{(s.errorSummary ?? '').slice(0, 160)}</li>)}</ul>
+        <Icon name="pause" /><div className={ui.grow}><b>审计已暂停：{filtered.length} 个步骤被模型的内容过滤拦截。</b> 安全审计内容有时会被误判。可以切换到另一个模型接着做，也可以让这些步骤从头开始一次新的对话，或原样重试。配置了备用模型时，被拦截会先自动切换一次；备用模型也被拦截、与被拦截的模型相同，或这一步是交叉审查的一路而备用模型是另一路时才停下来。交叉审查中只有一个模型被拦截时，按审计设置继续运行（默认，同一任务的模型都被拦截才暂停）或暂停。
+          <FilteredSteps auditId={a.id} steps={filtered} />
+          <ModelSwitches a={a} />
         </div>
         <Button size="sm" onClick={() => void post('resume', '已继续：原样重试')}>原样重试</Button>
         <Button size="sm" onClick={() => void post('resume', '已继续：被拦截的步骤从头开始', { restartFiltered: true })}>从头开始这些步骤</Button>
         <Button size="sm" variant="primary" icon="play" onClick={() => setSwitching(true)}>切换模型重试</Button>
-        <SwitchModelDialog open={switching} onClose={() => setSwitching(false)} current={[...new Set(filtered.map((s) => s.model).filter((m): m is string => !!m))]}
-          onConfirm={(m) => { setSwitching(false); void post('resume', `已继续：被拦截的步骤改用 ${m.provider}/${m.model}`, { switchModel: m }); }} />
+        <SwitchModelDialog open={switching} onClose={() => setSwitching(false)} count={filtered.length}
+          refused={[...new Set([...a.filteredModels, ...filtered.map((s) => s.model).filter((m): m is string => !!m)])]}
+          onConfirm={(m, scope) => {
+            setSwitching(false);
+            void post('resume', `已继续：${scope === 'later' ? '被拦截的步骤和之后的步骤' : '被拦截的步骤'}改用 ${m.provider}/${m.model}`, { switchModel: m, switchScope: scope });
+          }} />
+      </div>
+    );
+  }
+  // In cross review a refused lane does not pause the audit while another model goes on with the task.
+  if (a.status === 'running' && filtered.length) {
+    return (
+      <div className={cx(A.banner, A.bannerWarn)}>
+        <Icon name="alert" /><div className={ui.grow}><b>{filtered.length} 个交叉审查步骤被模型的内容过滤拦截，审计继续。</b> 这些任务先用其他模型的结果；同一任务的模型都被拦截时审计才暂停。要换模型补做，可以暂停后选择“切换模型重试”；不处理的话，审计结束时这些步骤记为跳过，报告中注明。
+          <FilteredSteps auditId={a.id} steps={filtered} />
+          <ModelSwitches a={a} />
+        </div>
+        <Button size="sm" icon="pause" onClick={() => void post('pause', '已请求暂停：进行中的会话做完这一轮后停下，之后可以切换模型重试')}>暂停并处理</Button>
       </div>
     );
   }
@@ -379,7 +471,7 @@ export function AuditPage() {
           ]} />
         </div>
         {tab === 'plan' && <PlanCard aid={aid} status={a.status} onConfirmed={() => setSearch({ tab: 'trajectory' })} />}
-        {(tab === 'plan' || tab === 'trajectory') && !['planning', 'awaiting_confirm', 'queued'].includes(a.status) && <DomainPlanCard aid={aid} live={!TERMINAL.includes(a.status)} />}
+        {(tab === 'plan' || tab === 'trajectory') && !['planning', 'awaiting_confirm', 'queued'].includes(a.status) && <DomainPlanCard key={tab} aid={aid} live={!TERMINAL.includes(a.status)} folded={tab === 'trajectory'} />}
         {tab === 'trajectory' && (
           <TrajectoryView aid={aid} audit={a} types={search.type ?? []} q={search.q ?? ''} step={search.step} onStep={(st) => setSearch({ step: st })}
             onTypes={(t) => setSearch({ type: t })} onQ={(x) => setSearch({ q: x || undefined }, true)} onVuln={(v) => setSearch({ panel: `vuln:${v}` })} />

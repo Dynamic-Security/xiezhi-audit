@@ -136,7 +136,7 @@ export <auditId> --format md|html|json|sarif --out <path> [--no-snippets] [--no-
 
 ## 评测工具（xiezhi eval）
 
-内置的评测工具用于衡量审计效果：基准样本、打分、回归门禁和消融实验。基准数据在独立仓库，用 `--bench DIR` 或环境变量 `XIEZHI_AUDIT_BENCH` 指定。
+内置的评测工具用于衡量审计效果：基准样本、打分、回归门禁和消融实验。基准数据需自备，安装包不附带；用 `--bench DIR` 或环境变量 `XIEZHI_AUDIT_BENCH` 指定。
 
 | 命令 | 说明 |
 | --- | --- |

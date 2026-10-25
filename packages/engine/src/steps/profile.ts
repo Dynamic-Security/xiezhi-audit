@@ -2,20 +2,19 @@
 // rootHash through the step idempotency key (a key hit on a succeeded step of another
 // audit is reused as `skipped`, no model call). On a new version of a repository that was profiled
 // before, the previous profile and the changed files are given to the model to update it.
-import { stageModel, SubmitProfile, SubmitSystemModel, type ModelRef, type SnapshotManifest, type SubmitProfile as Profile } from '@xiezhi/contracts';
+import { stageModel, SubmitProfile, SubmitSystemModel, type SnapshotManifest, type SubmitProfile as Profile } from '@xiezhi/contracts';
 import { diffManifests } from '@xiezhi/context';
 import type { AuditTool } from '@xiezhi/agent';
 import type { AuditRuntime, RepoInfo } from '../runtime.js';
 import { getStep, transitionStep, type StepRow } from '../state.js';
 import { sessionError, type AttemptContext, type StepResult } from '../step-runner.js';
 import { surfaceOn, validateSurface } from '../surface.js';
-import { threatSpec } from '../threat.js';
-import { taskTool } from './hunt.js';
 import { P } from '@xiezhi/knowledge';
 
 /** Bump when the profile prompt or schema changes: old cached profiles are then not reused. */
 // 2: with several targets the session stays in its own repository (earlier profiles traced all).
-export const PROFILE_PROMPT_VERSION = 2;
+// 3: the profile is its own session with its own role (no longer combined with the threat model).
+export const PROFILE_PROMPT_VERSION = 3;
 
 export interface ProfileOutput {
   repositoryId: string;
@@ -23,11 +22,6 @@ export interface ProfileOutput {
   profile: Profile;
   /** Set when this profile updated an earlier one of the same repository. */
   updatedFrom?: { rootHash: string; changedFiles: number };
-  /**
-   * the system-understanding session also wrote the threat model — its submissions, applied by this
-   * audit's first threat-model step of the repository (only when the profile ran in this audit, never from a cache hit).
-   */
-  understanding?: { model: string; submissions: Record<string, unknown[]> };
 }
 
 /**
@@ -70,7 +64,7 @@ export async function systemModelStep(rt: AuditRuntime, ctx: AttemptContext, pro
   const model = stageModel(rt.strategy, 'profile')!;
   const outcome = await rt.session({
     stepId: ctx.stepId, attempt: ctx.attempt, kind: 'profile', phase: 'profile', model, signal: ctx.signal,
-    prompt: lines.join('\n'), submitTools: [submit], requiredSubmits: ['submit_system_model'],
+    prompt: lines.join('\n'), submitTools: [submit], requiredSubmits: ['submit_system_model'], serviceCards: true,
     maxTurns: Math.min(40, rt.strategy.limits.maxTurnsPerStep),
   });
   const err = sessionError(outcome);
@@ -98,9 +92,6 @@ export function renderSystemModel(m: SubmitSystemModel, nameOf: (repo: string) =
   ].filter(Boolean).join('\n');
   return text.length > maxChars ? `${text.slice(0, maxChars)}\n…（已截断）` : text;
 }
-
-/** Threat-model submit tools whose calls the system-understanding session hands to the threat-model step. */
-export const THREAT_SUBMITS = ['submit_threat_model', 'submit_risk_domain', 'submit_access_policy'] as const;
 
 export function profileIdentity(rt: AuditRuntime, repo: RepoInfo = rt.targetRepo) {
   const m = stageModel(rt.strategy, 'profile')!;
@@ -144,9 +135,7 @@ function previousProfile(rt: AuditRuntime, repo: RepoInfo): { out: ProfileOutput
  * repository with the given threat model — a coordinator that does not read code itself (no read / grep) but hands
  * reading to `task` sub-agents and then submits.
  */
-export async function profileStep(rt: AuditRuntime, ctx: AttemptContext, repo: RepoInfo = rt.targetRepo, opts: { understand?: ModelRef } = {}): Promise<StepResult> {
-  const combined = opts.understand ? threatSpec(rt, repo, opts.understand, { combined: true }) : null;
-  const read = combined ? P('profile.surface.read_by_task') : P('profile.surface.read_self');
+export async function profileStep(rt: AuditRuntime, ctx: AttemptContext, repo: RepoInfo = rt.targetRepo): Promise<StepResult> {
   const view = rt.views.get(repo.name)!;
   const idx = rt.indexes.get(repo.name);
   const prev = previousProfile(rt, repo);
@@ -157,9 +146,7 @@ export async function profileStep(rt: AuditRuntime, ctx: AttemptContext, repo: R
     ...(surfaceOn(rt) ? { validate: (a: Profile) => validateSurface(rt, repo, a.surface) } : {}),
   };
   const lines = [
-    combined
-      ? P('profile.understand.intro')
-      : P('profile.intro'),
+    P('profile.intro'),
     `仓库：${repo.name}；文件 ${view.manifest.stats.fileCount} 个；语言 ${JSON.stringify(view.manifest.stats.byLang)}。`,
   ];
   if (idx) lines.push(`结构索引：入口 ${idx.entrypoints.length} 个，危险点 ${idx.sinks.length} 个，鉴权信号 ${idx.authSignals.length} 个。`);
@@ -177,29 +164,24 @@ export async function profileStep(rt: AuditRuntime, ctx: AttemptContext, repo: R
   if (surfaceOn(rt) && idx) {
     // the rules only know some frameworks and APIs; the model fills in what they miss.
     lines.push(
-      '', P('profile.surface', { read }),
+      '', P('profile.surface'),
     );
   }
   lines.push(P('profile.submit'));
-  if (combined) lines.push('', P('profile.understand.threat'), ...combined.lines);
   const model = stageModel(rt.strategy, 'profile')!;
   // Tools default to this repository (not the audit's first target); with several targets the
   // session and its sub-agents stay in it — the system session after the profiles spans the repositories.
   const scope = { repo: repo.name, ownRepoOnly: rt.targets.length > 1 };
   const outcome = await rt.session({
     stepId: ctx.stepId, attempt: ctx.attempt, kind: 'profile', phase: 'profile', model, signal: ctx.signal,
-    prompt: lines.join('\n'), submitTools: [submit, ...(combined?.tools ?? [])], requiredSubmits: ['submit_profile', ...(combined?.required ?? [])],
-    maxTurns: Math.min(combined ? 60 : surfaceOn(rt) ? 40 : 30, rt.strategy.limits.maxTurnsPerStep),
+    prompt: lines.join('\n'), submitTools: [submit], requiredSubmits: ['submit_profile'],
+    maxTurns: Math.min(surfaceOn(rt) ? 40 : 30, rt.strategy.limits.maxTurnsPerStep),
     ...scope,
-    ...(combined ? { extraTools: [taskTool(rt, ctx, model, scope)], noCodeRead: true } : {}),
   });
   const err = sessionError(outcome);
   if (err) throw err;
   const profile = (outcome.submissions.submit_profile as Profile[]).at(-1)!;
-  const understanding = combined && opts.understand
-    ? { model: `${opts.understand.provider}/${opts.understand.model}`, submissions: Object.fromEntries(THREAT_SUBMITS.map((k) => [k, outcome.submissions[k] ?? []])) }
-    : undefined;
-  const out: ProfileOutput = { repositoryId: repo.id, rootHash: repo.rootHash, profile, ...(updatedFrom ? { updatedFrom } : {}), ...(understanding ? { understanding } : {}) };
+  const out: ProfileOutput = { repositoryId: repo.id, rootHash: repo.rootHash, profile, ...(updatedFrom ? { updatedFrom } : {}) };
   return { outputRef: rt.store.artifacts.putJson(out) };
 }
 

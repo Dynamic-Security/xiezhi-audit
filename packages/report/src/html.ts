@@ -1,6 +1,7 @@
 // Deterministic single-file HTML rendering: inline styles, no scripts,
 // no external resources; every audited-content string is HTML-escaped. Same model as Markdown.
-import { CATEGORY_ZH, CONFIDENCE_ZH, PENDING_KIND_ZH, SOURCE_ZH, STEP_STATUS_ZH, STEP_ZH, partialReasonText, zh } from './labels.js';
+import { formatTokens } from '@xiezhi/contracts';
+import { CATEGORY_ZH, CONFIDENCE_ZH, PENDING_KIND_ZH, SOURCE_ZH, STEP_STATUS_ZH, partialReasonText, stepZh, zh } from './labels.js';
 import { verificationHtml } from './verification.js';
 import { ACCESS_LEVEL_ZH, accessVerdictZh, COVERAGE_NOTE, MISSING_KIND_ZH, OBLIGATION_KIND_ZH, OBLIGATION_SOURCE_ZH, UNCONCLUDED_REASON_ZH, unconcludedText, PENDING_ACTION_ZH, pendingOfDetail, STATIC_AUDIT_NOTE, type CodeLoc, type ReportFinding, type ReportModel } from './model.js';
 
@@ -163,10 +164,10 @@ export function renderHtml(m: ReportModel): string {
   o.push(`<li>项目：${e(m.project.name)}</li>`);
   o.push(`<li>审计：<code>${e(m.audit.id)}</code>（场景 ${e(m.audit.scene)}，模式 ${e(m.audit.mode)}）</li>`);
   o.push(`<li>状态：<strong>${e(STATUS_ZH[m.audit.status] ?? m.audit.status)}</strong></li>`);
-  if (m.audit.partialReasons.length) o.push(`<li>未完成原因（按优先级）：${e(m.audit.partialReasons.map(partialReasonText).join(' > '))}</li>`);
+  if (m.audit.partialReasons.length) o.push(`<li>${m.audit.status === 'completed' ? '过程问题' : '未完成原因'}（按优先级）：${e(m.audit.partialReasons.map(partialReasonText).join(' > '))}</li>`);
   for (const n of m.audit.notices ?? []) o.push(`<li>提示：${e(n)}</li>`);
   if (m.audit.strategyHash) o.push(`<li>冻结策略：<code>${e(m.audit.strategyHash.slice(0, 16))}</code></li>`);
-  o.push(`<li>用量：${m.audit.usage.tokens} tokens${m.audit.usage.costMicros !== null ? `，成本 ${(m.audit.usage.costMicros / 1e6).toFixed(4)}` : '，成本未知'}</li>`);
+  o.push(`<li>用量：${formatTokens(m.audit.usage.tokens)} tokens${m.audit.usage.costMicros !== null ? `，成本 ${(m.audit.usage.costMicros / 1e6).toFixed(4)}` : '，成本未知'}</li>`);
   o.push('</ul>');
   if (m.audit.status !== 'completed') o.push('<div class="note warn">本次审计未完整结束，结论不能视为“完整审计”或“代码安全”。</div>');
 
@@ -248,12 +249,12 @@ export function renderHtml(m: ReportModel): string {
   }
   if (m.knowledge.length) {
     o.push('<h2>使用的知识</h2><table><thead><tr><th>skill</th><th>层</th><th>最高加载级别</th><th>次数</th><th>步骤</th><th>tokens</th><th>被结论引用</th></tr></thead><tbody>');
-    for (const k of m.knowledge) o.push(`<tr><td>${e(k.name)}</td><td>${e(k.layer)}</td><td>${e(k.maxLevel)}</td><td>${k.reads}</td><td>${k.steps}</td><td>${k.tokens}</td><td>${k.citedBy}</td></tr>`);
+    for (const k of m.knowledge) o.push(`<tr><td>${e(k.name)}</td><td>${e(k.layer)}</td><td>${e(k.maxLevel)}</td><td>${k.reads}</td><td>${k.steps}</td><td>${formatTokens(k.tokens)}</td><td>${k.citedBy}</td></tr>`);
     o.push('</tbody></table>');
   }
   if (m.trajectory?.length) {
     o.push('<h2>行为轨迹摘要</h2><table><thead><tr><th>步骤</th><th>状态</th><th>耗时</th><th>tokens</th><th>工具调用</th><th>Agent 说明（首条）</th></tr></thead><tbody>');
-    for (const s of m.trajectory) o.push(`<tr><td>${e(zh(STEP_ZH, s.kind))}${s.lineage ? ` ${e(s.lineage)}` : ''}</td><td>${e(zh(STEP_STATUS_ZH, s.status))}</td><td>${(s.durationMs / 1000).toFixed(1)} 秒</td><td>${s.tokens}</td><td>${s.toolCalls}</td><td>${e(s.firstNote ?? '')}</td></tr>`);
+    for (const s of m.trajectory) o.push(`<tr><td>${e(stepZh(s.kind, s.lineage))}${s.lineage ? ` ${e(s.lineage)}` : ''}</td><td>${e(zh(STEP_STATUS_ZH, s.status))}</td><td>${(s.durationMs / 1000).toFixed(1)} 秒</td><td>${formatTokens(s.tokens)}</td><td>${s.toolCalls}</td><td>${e(s.firstNote ?? '')}</td></tr>`);
     o.push('</tbody></table>');
   }
   o.push('</main></body></html>');

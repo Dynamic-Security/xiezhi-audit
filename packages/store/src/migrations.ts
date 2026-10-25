@@ -939,6 +939,25 @@ CREATE TABLE fix_suggestion (
 CREATE INDEX idx_fix_suggestion_vuln ON fix_suggestion(vulnerability_id);
 `;
 
+/** Suggested answers offered with a question (JSON array of 2–4 short strings; NULL for none). */
+const M040 = `
+ALTER TABLE question ADD COLUMN options TEXT ${json('options', true)};
+`;
+
+// “切换模型重试 · 之后所有步骤” — a refused model (`provider/model`) → the model the user chose for every later
+// step; and the model each attempt ran on (`provider/model`), so the models a content filter refused can be listed.
+// Kept in rows rather than events: event payloads are redacted, and a provider id that equals a configured secret (a
+// local gateway whose key is its name) would no longer name the model.
+const M041 = `
+ALTER TABLE audit ADD COLUMN model_switches TEXT NOT NULL DEFAULT '{}' ${json('model_switches')};
+ALTER TABLE step_attempt ADD COLUMN model TEXT;
+`;
+
+// Files added to a user message ([{ id: sha256 artifact, kind, name, mimeType, size }]).
+const M042 = `
+ALTER TABLE message ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]' ${json('attachments')};
+`;
+
 /**
  * `accepts`: checksums of earlier texts of this migration that shipped in a build and left the same schema once the
  * later migrations ran. `foreignKeysOff`: the migration rebuilds a referenced table, so it runs with
@@ -1005,6 +1024,9 @@ export const MIGRATIONS: Migration[] = [
   { version: 37, name: 'm18_project_rules', sql: M037 },
   { version: 38, name: 'm18_verification_cases', sql: M038 },
   { version: 39, name: 'm18_fix_suggestions', sql: M039 },
+  { version: 40, name: 'm18_question_options', sql: M040 },
+  { version: 41, name: 'm18_model_switches', sql: M041 },
+  { version: 42, name: 'm18_message_attachments', sql: M042 },
 ];
 
 export function migrationChecksum(m: Migration): string {

@@ -4,6 +4,7 @@ import { type Mention } from '@xiezhi/contracts';
 import { wrapUntrusted } from '@xiezhi/agent';
 import { fromJson, type Store } from '@xiezhi/store';
 import { pendingOf } from '../vulns.js';
+import { attachmentNote, messageAttachments } from './attachments.js';
 import { messageCards, resolveMention, type CardRow, type MessageRow } from './records.js';
 import { P } from '@xiezhi/knowledge';
 
@@ -124,7 +125,7 @@ export function historyText(store: Store, conversationId: string, beforeSeq: num
   let omitted = 0;
   for (const m of rows) {
     const cards = m.role === 'assistant' ? messageCards(store, m.id).map(cardSummary) : [];
-    const text = `${m.role === 'user' ? '用户' : '助手'}：${m.content}${m.status === 'interrupted' ? '（回复中断）' : ''}${cards.length ? `\n${cards.join('\n')}` : ''}`;
+    const text = `${m.role === 'user' ? '用户' : '助手'}：${m.content}${attachmentNote(messageAttachments(m.attachments))}${m.status === 'interrupted' ? '（回复中断）' : ''}${cards.length ? `\n${cards.join('\n')}` : ''}`;
     if (used + text.length > budgetChars) { omitted++; continue; }
     used += text.length;
     out.push(text);

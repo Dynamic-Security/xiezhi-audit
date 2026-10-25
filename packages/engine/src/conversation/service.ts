@@ -4,7 +4,7 @@
 // never changes data: its propose_* tools produce cards the user applies. Replies stream to subscribers;
 // non-delta events are persisted per message so a reconnect resumes by `seq`.
 // The live reply service. Records are in records.ts, the reply context in context.ts.
-import { AppError, CONVERSATION_TOOLS, isAuditLanguage, newId, ProposeHunt, type CardKind, type FinishReason, type Mention, type ModelRef, type SnapshotManifest, type StructIndex } from '@xiezhi/contracts';
+import { AppError, CONVERSATION_TOOLS, type AttachmentInput, isAuditLanguage, newId, ProposeHunt, type CardKind, type FinishReason, type Mention, type ModelRef, type SnapshotManifest, type StructIndex } from '@xiezhi/contracts';
 import { buildIndex, SnapshotView, type Executor, type IndexMap, type RuleSet } from '@xiezhi/context';
 import { effectiveSkills, freezeSkills, P, scanLayer, sessionKnowledge, type FrozenKnowledge } from '@xiezhi/knowledge';
 import { buildAuditTools, buildConversationPrompt, newNonce, modelCallContext, startSession, unverifiedKnowledgeNote, wrapUntrusted, type ModelHub, type SessionEvent, type SessionOutcome, type UsageDelta } from '@xiezhi/agent';
@@ -15,6 +15,7 @@ import { indexLanguagesFor } from '../auditable.js';
 import { buildConnectorAccess, connectorPrompt } from '../connector-access.js';
 import { chatModelOf } from '../services.js';
 import { projectConnectors } from '../connectors.js';
+import { attachmentImages, attachmentText, messageAttachments, storeAttachments, type StoredAttachment } from './attachments.js';
 import { codeScope, historyText, mentionContext, mentionedProjects } from './context.js';
 import { cardTools, dataTools, type ReplyToolContext } from './tools.js';
 export { credentialValues } from './tools.js';
@@ -90,7 +91,11 @@ export class ConversationService {
   streamingIn(conversationId: string): boolean { return [...this.live.values()].some((l) => l.conversationId === conversationId); }
 
   /** Send a user message (idempotent by clientMessageId) and start the assistant reply. */
-  postMessage(conversationId: string, input: { clientMessageId: string; content: string; mentions?: Mention[] }): { userMessageId: string; assistantMessageId: string } {
+  postMessage(conversationId: string, input: { clientMessageId: string; content: string; mentions?: Mention[]; attachments?: AttachmentInput[] }): { userMessageId: string; assistantMessageId: string } {
+    return this.post(conversationId, input, (c) => input.attachments?.length ? storeAttachments(this.store, input.attachments, this.acceptsImages(c)) : []);
+  }
+
+  private post(conversationId: string, input: { clientMessageId: string; content: string; mentions?: Mention[] }, files: (c: ConversationRow) => StoredAttachment[]): { userMessageId: string; assistantMessageId: string } {
     const c = getConversation(this.store, conversationId);
     const existing = this.store.get<{ id: string }>('SELECT id FROM message WHERE conversation_id = ? AND client_message_id = ?', conversationId, input.clientMessageId);
     if (existing) {
@@ -98,12 +103,14 @@ export class ConversationService {
       if (reply) return { userMessageId: existing.id, assistantMessageId: reply.id };
     }
     if (this.streamingIn(conversationId)) throw new AppError('MESSAGE_BUSY', 'stop the current reply first');
+    const attachments = files(c);
+    if (!input.content.trim() && !attachments.length) throw new AppError('COMMON_VALIDATION', '消息需要文字或文件');
     if (c.status === 'archived') this.store.update('conversation', { id: conversationId }, { status: 'active' });
     const ids = this.store.tx(() => {
       const next = (this.store.get<{ m: number | null }>('SELECT MAX(seq) AS m FROM message WHERE conversation_id = ?', conversationId)?.m ?? 0) + 1;
       const userId = newId('message');
       this.store.insert('message', {
-        id: userId, conversation_id: conversationId, seq: next, role: 'user', content: input.content, refs: dedupeMentions(input.mentions ?? []), cards: [], status: 'complete',
+        id: userId, conversation_id: conversationId, seq: next, role: 'user', content: input.content, refs: dedupeMentions(input.mentions ?? []), attachments, cards: [], status: 'complete',
         finish_reason: null, client_message_id: input.clientMessageId,
       });
       const assistantId = this.createAssistant(conversationId, next + 1, userId);
@@ -133,7 +140,9 @@ export class ConversationService {
       this.store.db.run('DELETE FROM message WHERE reply_to = ?', m.id);
       this.store.db.run('DELETE FROM message WHERE id = ?', m.id);
     });
-    return this.postMessage(m.conversation_id, { clientMessageId: input.clientMessageId, content: input.content, mentions: fromJson<Mention[]>(m.refs, []) });
+    // The message keeps its files: only the text is edited.
+    const attachments = messageAttachments(m.attachments);
+    return this.post(m.conversation_id, { clientMessageId: input.clientMessageId, content: input.content, mentions: fromJson<Mention[]>(m.refs, []) }, () => attachments);
   }
 
   /** Answer the same user message again (e.g. after an interrupted reply). */
@@ -167,6 +176,11 @@ export class ConversationService {
     if (own) return own;
     const cfg = this.store.config;
     try { return chatModelOf(cfg); } catch { throw new AppError('MODEL_NOT_CONFIGURED', 'conversations need a chat or default model'); }
+  }
+
+  /** Whether the conversation's model takes images (`images: false` on its entry makes it text only). */
+  acceptsImages(c: ConversationRow): boolean {
+    try { return this.deps.hub().resolve(this.modelOf(c)).input.includes('image'); } catch { return false; }
   }
 
   /** User stop (the only way to halt a reply actively). */
@@ -333,7 +347,7 @@ export class ConversationService {
       return id;
     };
 
-    const toolCtx: ReplyToolContext = { store, nonce, conversationId: l.conversationId, messageId: l.messageId, projects, scope, views, reads, skillRead, card };
+    const toolCtx: ReplyToolContext = { store, nonce, conversationId: l.conversationId, messageId: l.messageId, userMessage: userMsg.content, projects, scope, views, reads, skillRead, card };
     const replyTools = [...dataTools(toolCtx), ...cardTools(toolCtx)];
 
     const codeScopeText = scope.length
@@ -351,9 +365,15 @@ export class ConversationService {
     });
     const budgetChars = Math.floor(this.contextWindow(hub, model) * HISTORY_SHARE * 2);
     const history = historyText(store, l.conversationId, userMsg.seq, budgetChars);
-    const current = userMsg.refs && fromJson<Mention[]>(userMsg.refs, []).length
-      ? `${userMsg.content}\n\n（本条消息引用：${fromJson<Mention[]>(userMsg.refs, []).map((m) => resolveMention(store, m).label).join('、')}）`
-      : userMsg.content;
+    const files = messageAttachments(userMsg.attachments);
+    const fileText = attachmentText(store, files, nonce);
+    const refs = fromJson<Mention[]>(userMsg.refs, []);
+    const current = [
+      userMsg.content,
+      refs.length ? `（本条消息引用：${refs.map((m) => resolveMention(store, m).label).join('、')}）` : '',
+      files.length ? `（本条消息附件：${files.map((a) => a.name).join('、')}）` : '',
+      fileText,
+    ].filter(Boolean).join('\n\n');
     const prompt = history ? P('conversation.with_history', { history, current }) : current;
 
     this.emit(l, 'message_start', { messageId: l.messageId, model: `${model.provider}/${model.model}`, mentions: mentions.map((m) => resolveMention(store, m)) });
@@ -376,7 +396,7 @@ export class ConversationService {
     };
     // A person is waiting for this reply: its model requests go before queued audit work.
     const handle = modelCallContext.run({ priority: 'interactive' }, () => startSession({
-      hub, model, cwd: store.paths.tmp, agentDir: store.paths.agent, systemPrompt, prompt, tools: [...base, ...replyTools], requiredSubmits: [],
+      hub, model, cwd: store.paths.tmp, agentDir: store.paths.agent, systemPrompt, prompt, images: attachmentImages(store, files), tools: [...base, ...replyTools], requiredSubmits: [],
       maxTurns: REPLY_MAX_TURNS, signal: l.abort.signal, onEvent,
     }));
     this.finishReply(l, await handle.outcome, usage, conv, userMsg);
@@ -398,7 +418,7 @@ export class ConversationService {
     }
     this.emit(l, 'done', { finishReason: finish, usage: { input: out.usage.input, output: out.usage.output, cacheRead: out.usage.cacheRead, total: tokens } });
     store.update('message', { id: l.messageId }, { status: 'complete', finish_reason: finish, content: text, tokens, usage: out.usage });
-    if (conv.title === '新会话' && userMsg.seq === 1) store.update('conversation', { id: conv.id }, { title: titleFromText(userMsg.content) });
+    if (conv.title === '新会话' && userMsg.seq === 1) store.update('conversation', { id: conv.id }, { title: titleFromText(userMsg.content || messageAttachments(userMsg.attachments).map((a) => a.name).join('、')) });
   }
 
   private recordSkill(conversationId: string, messageId: string, u: { name: string; layer: string; sha256: string; level: string; trigger: string; reason: string; tokens: number }): void {

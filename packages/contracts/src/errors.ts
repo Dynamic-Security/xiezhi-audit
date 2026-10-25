@@ -72,6 +72,8 @@ export const ERROR_CODES = {
   THREAT_SOURCE_NOT_FOUND: '输入来源不存在',
   THREAT_RISK_NOT_FOUND: '风险不存在',
   THREAT_REASON_REQUIRED: '除待研判外，设置风险状态需要填写理由',
+  // Model providers. Append-only.
+  PROVIDER_IN_USE: '模型服务仍被模型配置引用',
 } as const;
 export type ErrorCode = keyof typeof ERROR_CODES;
 

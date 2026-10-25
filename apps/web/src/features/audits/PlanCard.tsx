@@ -6,7 +6,7 @@ import type { PlanDto } from '@xiezhi/contracts';
 import { api, newIdempotencyKey } from '../../shared/api/client';
 import { useConnectors, useModelSettings, usePlan } from '../../shared/api/queries';
 import { IMPACT_MODE, IMPACT_REASON, fmt } from '../../shared/format/messages';
-import { Badge, Button, ConfirmDialog, Dialog, ErrorState, Field, Icon, Loading, cx, ui, useToast } from '../../shared/ui';
+import { Badge, Button, ConfirmDialog, Dialog, ErrorState, Field, Icon, Loading, TokenInput, cx, ui, useToast } from '../../shared/ui';
 import A from './audits.module.css';
 import { AnalysisOptions, analysisChoiceOf, analysisOverride } from './AnalysisOptions';
 import { StageModelsSummary } from './StageModels';
@@ -42,7 +42,7 @@ function EditPlanDialog({ plan, open, onClose }: { plan: PlanDto; open: boolean;
   return (
     <Dialog open={open} onClose={onClose} title="调整计划" footer={<><Button onClick={onClose}>取消</Button><Button variant="primary" loading={busy} onClick={() => void save()}>保存</Button></>}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="token 预算"><input className={ui.input} type="number" min={1000} value={tokens} onChange={(e) => setTokens(Number(e.target.value))} /></Field>
+        <Field label="token 预算"><TokenInput value={tokens} onChange={(t) => setTokens(t || 0)} /></Field>
         <Field label="时长上限（分钟）"><input className={ui.input} type="number" min={1} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} /></Field>
       </div>
       {hasShares && <label className={ui.checkbox}><input type="checkbox" checked={stageLimits} onChange={(e) => setStageLimits(e.target.checked)} />限制各阶段额度{stageLimits ? '' : '（已关闭：各阶段只受总 token 预算限制）'}</label>}
@@ -106,10 +106,10 @@ export function PlanCard({ aid, status, onConfirmed }: { aid: string; status: st
         <div><span className={ui.faint}>入口</span><b>{pl.scale.entrypoints}</b></div>
         <div><span className={ui.faint}>危险点</span><b>{pl.scale.sinks}</b></div>
         <div><span className={ui.faint}>候选</span><b>{pl.scale.candidates}</b></div>
-        <div><span className={ui.faint}>预计 tokens</span><b>{fmt.compact(e.tokens.p50)}–{fmt.compact(e.tokens.p90)}</b></div>
+        <div><span className={ui.faint}>预计 tokens</span><b>{fmt.tokensRange(e.tokens.p50, e.tokens.p90)}</b></div>
         <div><span className={ui.faint}>预计耗时</span><b>{Math.round(e.durationSec.p50 / 60)}–{Math.round(e.durationSec.p90 / 60)} 分钟</b></div>
         <div><span className={ui.faint}>预计成本</span><b>{e.cost ? `${e.cost.p50.toFixed(2)}–${e.cost.p90.toFixed(2)} ${e.cost.currency}` : '未知'}</b></div>
-        <div><span className={ui.faint}>预算</span><b>{fmt.compact(p.strategy.budget.tokens)} · {Math.round(p.strategy.budget.durationSec / 60)} 分钟</b></div>
+        <div><span className={ui.faint}>预算</span><b>{fmt.tokens(p.strategy.budget.tokens)} · {Math.round(p.strategy.budget.durationSec / 60)} 分钟</b></div>
         {(p.strategy.connectors ?? []).length > 0 && (
           <div><span className={ui.faint}>可使用的连接器</span><b>{(p.strategy.connectors ?? []).map((id) => connectors.data?.find((c) => c.id === id || c.name === id)?.name ?? id).join('、')}</b></div>
         )}
@@ -117,20 +117,29 @@ export function PlanCard({ aid, status, onConfirmed }: { aid: string; status: st
       {/* each stage's share of the median tokens; a stage with a strategy switch can be turned off under 调整. */}
       {(e.stages ?? []).length > 0 && (
         <div className={ui.muted} style={{ fontSize: 13, marginTop: 6 }} aria-label="各阶段预计 tokens">
-          各阶段预计（中位数）：{e.stages!.map((x) => `${x.label} ${fmt.compact(x.tokens)}${x.switch ? '（可关闭）' : ''}`).join(' · ')}
+          各阶段预计（中位数）：{e.stages!.map((x) => `${x.label} ${fmt.tokens(x.tokens)}${x.switch ? '（可关闭）' : ''}`).join(' · ')}
         </div>
       )}
       {pl.incremental && (
         <div className={A.planIncremental} aria-label="增量对比">
-          <div className={ui.row}><Icon name="git" size={14} /><b>对比基线</b>
-            <span className={ui.muted}>{pl.incremental.base.ref ?? (pl.incremental.base.auditId ? '上次审计的版本' : '')} {pl.incremental.base.commit ? pl.incremental.base.commit.slice(0, 7) : pl.incremental.base.worktree ? '工作区版本' : ''}</span>
-            <Badge tone={pl.incremental.mode === 'precise' ? 'ok' : 'warn'}>{IMPACT_MODE[pl.incremental.mode]}</Badge>
-          </div>
-          <div className={ui.muted} style={{ fontSize: 13 }}>
-            变更文件：新增 {pl.incremental.changedFiles.added} · 修改 {pl.incremental.changedFiles.modified} · 删除 {pl.incremental.changedFiles.deleted} · 移动 {pl.incremental.changedFiles.renamed}
-            {pl.incremental.mode !== 'heuristic' || pl.incremental.affectedEntrypoints ? ` ；受影响入口 ${pl.incremental.affectedEntrypoints} · 危险点 ${pl.incremental.affectedSinks}` : ''}
-          </div>
-          {pl.incremental.fallbackReasons.length > 0 && <div className={ui.faint} style={{ fontSize: 12 }}>{pl.incremental.fallbackReasons.map((r) => IMPACT_REASON[r] ?? r).join('；')}</div>}
+          {/* A multi-repository incremental audit shows each target's baseline and change. */}
+          {(pl.incremental.repos ?? [{ ...pl.incremental, repo: null }]).map((x) => (
+            <div key={x.repo ?? ''} className={ui.stack} style={{ gap: 2 }}>
+              <div className={ui.row}><Icon name="git" size={14} /><b>{x.repo ? `${x.repo} · 对比基线` : '对比基线'}</b>
+                <span className={ui.muted}>{x.base ? `${x.base.ref ?? (x.base.auditId ? '上次审计的版本' : '')} ${x.base.commit ? x.base.commit.slice(0, 7) : x.base.worktree ? '工作区版本' : ''}` : '没有基线'}</span>
+                <Badge tone={x.mode === 'precise' ? 'ok' : 'warn'}>{IMPACT_MODE[x.mode]}</Badge>
+              </div>
+              {x.base && (
+                <div className={ui.muted} style={{ fontSize: 13 }}>
+                  {x.repo && !x.changedFiles.added && !x.changedFiles.modified && !x.changedFiles.deleted && !x.changedFiles.renamed ? '没有变更：只作为跨仓调用链的依据' : <>
+                    变更文件：新增 {x.changedFiles.added} · 修改 {x.changedFiles.modified} · 删除 {x.changedFiles.deleted} · 移动 {x.changedFiles.renamed}
+                    {x.mode !== 'heuristic' || x.affectedEntrypoints ? ` ；受影响入口 ${x.affectedEntrypoints} · 危险点 ${x.affectedSinks}` : ''}
+                  </>}
+                </div>
+              )}
+              {x.fallbackReasons.length > 0 && <div className={ui.faint} style={{ fontSize: 12 }}>{x.fallbackReasons.map((r) => IMPACT_REASON[r] ?? r).join('；')}</div>}
+            </div>
+          ))}
         </div>
       )}
       <div className={A.planGrid}>

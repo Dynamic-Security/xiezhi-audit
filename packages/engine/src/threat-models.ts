@@ -131,6 +131,15 @@ export function addThreatSource(store: Store, threatModelId: string, input: AddT
   return getSource(store, id);
 }
 
+/** A threat model with its sources in one transaction: nothing is left behind when a source is refused. */
+export function createThreatModelWithSources(store: Store, projectId: string, input: { title: string; sources: AddThreatSourceInput[] }): ThreatModelRow {
+  return store.tx(() => {
+    const tm = createThreatModel(store, projectId, { title: input.title });
+    for (const s of input.sources) addThreatSource(store, tm.id, s);
+    return getThreatModelRow(store, tm.id);
+  });
+}
+
 /**
  * Change a source's title or note; a text source's text; an online source's connector or document (its fetched copy
  * is dropped and it is read again at the next generation). An uploaded document is replaced by deleting and adding.

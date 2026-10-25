@@ -13,6 +13,9 @@
  "feishu-doc-threat-model-sync": [
   "5996399a4d4692eb43b65f6f2bf12c19b68835b7e29e6002f2798ba2d90f8ce7"
  ],
+ "fp-precedents-and-exclusions.md": [
+  "d13c34d094a40ca0a424591f73bd2613d460a0cbbf07668ecacf0daadf2d1c6c"
+ ],
  "javascript-audit-method.md": [
   "ea2ff2bd95e4c2c0191baba6f754bd5d95309206fb690a7e4eeb3fc342b23cde"
  ],
@@ -40,6 +43,7 @@
  ],
  "session-transport-checklist.md": [
   "11546d56bb1cce78ef07659aa6114e2e0156071479472a11388db6dd5f79c10c",
-  "437745a6fd4581206a5a85c7f7c10cd7c2d37096e41a6e10cdb92484befbb0e2"
+  "437745a6fd4581206a5a85c7f7c10cd7c2d37096e41a6e10cdb92484befbb0e2",
+  "e4d1fdfc455fd157bc91fe958d83514449eb7ce0a1f75ff5f1dc9707e8b9ff92"
  ]
 }

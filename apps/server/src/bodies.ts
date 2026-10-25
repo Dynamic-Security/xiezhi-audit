@@ -2,14 +2,17 @@
 // (parseBody) and by the route schema from which openapi.json is generated — no drift possible.
 import { Type } from 'typebox';
 import { THREAT_RISK_STATUSES, THREAT_SOURCE_MAX_BYTES, VULN_CATEGORIES,
-  AuditPlanRequest, BUDGET_STAGES, StageModelsConfig, CONFIRM_STATUSES, EXPORT_FORMATS, HANDLING_STATUSES, INTERVENTION_KINDS, MATCH_DECISIONS, MODEL_APIS, ModelRef, Pricing, SEVERITIES,
+  AuditPlanRequest, BUDGET_STAGES, StageModelsConfig, TOOL_PATH_KEYS, CONFIRM_STATUSES, EXPORT_FORMATS, HANDLING_STATUSES, INTERVENTION_KINDS, MATCH_DECISIONS, MODEL_APIS, ModelRef, Pricing, SEVERITIES,
+  TOP_UP_TOKENS_MAX, TOP_UP_TOKENS_MIN,
 } from '@xiezhi/contracts';
 
 const NullableModel = Type.Union([ModelRef, Type.Null()]);
 
 export const ModelEntry = Type.Object({
   id: Type.String({ minLength: 1, maxLength: 200 }), name: Type.Optional(Type.String({ maxLength: 200 })),
-  contextWindow: Type.Optional(Type.Integer({ minimum: 1024 })), maxTokens: Type.Optional(Type.Integer({ minimum: 256 })), reasoning: Type.Optional(Type.Boolean()),
+  contextWindow: Type.Optional(Type.Integer({ minimum: 1024 })), maxTokens: Type.Optional(Type.Integer({ minimum: 256 })), reasoning: Type.Optional(Type.Boolean()), images: Type.Optional(Type.Boolean()),
+  /** May receive facts marked confidential: stored in the global `confidentialModels` list, not on the model. */
+  confidential: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
 
 export const ProviderCreate = Type.Object({
@@ -41,6 +44,8 @@ export const PatchSettingsGeneralBody = Type.Object({
       export: Type.Optional(Type.Object({ snippets: Type.Optional(Type.Boolean()), localRoots: Type.Optional(Type.Boolean()), reportSkill: Type.Optional(Type.Union([Type.String({ pattern: '^[a-z0-9][a-z0-9-]{1,63}$' }), Type.Null()])) }, { additionalProperties: false })),
       log: Type.Optional(Type.Object({ level: Type.Optional(Type.Enum(['debug', 'info', 'warn', 'error'] as const)), retentionDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 365 })) }, { additionalProperties: false })),
       pricing: Type.Optional(Type.Record(Type.String(), Pricing)),
+      /** External tool paths: an absolute path sets one, null clears it (looked up on PATH again). */
+      tools: Type.Optional(Type.Object(Object.fromEntries(TOOL_PATH_KEYS.map((k) => [k, Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 1024, pattern: '^/' }), Type.Null()]))])), { additionalProperties: false })),
     }, { additionalProperties: false });
 export const PostProjectsBody = Type.Object({ name: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false });
 export const PatchProjectsPidBody = Type.Object({
@@ -72,11 +77,15 @@ export const PatchReposRidBody = Type.Object({
 /** The audit form request plus `autoStart`: the conversation tool's AuditPlanRequest stays unchanged. */
 export const PostAuditPlansBody = Type.Object({ ...AuditPlanRequest.properties, autoStart: Type.Optional(Type.Boolean({ description: '计划生成后直接开始（网页表单默认开启）' })) }, { additionalProperties: false });
 export const PatchAuditPlansIdBody = Type.Object({ revision: Type.Optional(Type.Integer()), strategyOverride: Type.Record(Type.String(), Type.Unknown()), title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })) }, { additionalProperties: false });
-/** steps a content filter refused start afresh instead of retrying their conversation as it is. */
-export const PostAuditsAidResumeBody = Type.Object({ restartFiltered: Type.Optional(Type.Boolean()), switchModel: Type.Optional(ModelRef) }, { additionalProperties: false });
+/** Steps a content filter refused start afresh instead of retrying their conversation as it is. */
+export const PostAuditsAidResumeBody = Type.Object({
+  restartFiltered: Type.Optional(Type.Boolean()), switchModel: Type.Optional(ModelRef),
+  /** `later` also moves every later step that would run on a refused model; default `filtered` (the refused steps only). */
+  switchScope: Type.Optional(Type.Union([Type.Literal('filtered'), Type.Literal('later')])),
+}, { additionalProperties: false });
 export const PostAuditsAidBudgetGrantsBody = Type.Object({
-  tokens: Type.Optional(Type.Integer({ minimum: 1, maximum: 100_000_000 })), durationSec: Type.Optional(Type.Integer({ minimum: 1, maximum: 7 * 86400 })),
-  /** add the tokens to this stage quota (and to the total). */
+  tokens: Type.Optional(Type.Integer({ minimum: TOP_UP_TOKENS_MIN, maximum: TOP_UP_TOKENS_MAX })), durationSec: Type.Optional(Type.Integer({ minimum: 1, maximum: 7 * 86400 })),
+  /** Add the tokens to this stage quota (and to the total). */
   stage: Type.Optional(Type.Enum(BUDGET_STAGES)),
   /** drop the audit's stage quotas — only the total limits it from then on. */
   liftStageQuotas: Type.Optional(Type.Literal(true)),

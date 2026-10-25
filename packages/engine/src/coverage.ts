@@ -10,7 +10,7 @@ import type { AuditRuntime } from './runtime.js';
 import { scopePredicate } from './steps/triage.js';
 import { hypothesisAuditIds } from './threat.js';
 
-interface ItemRow { id: string; kind: 'entry' | 'sink'; target_id: string; repository_id: string; path: string; start_line: number; end_line: number; status: string; verdict: string | null }
+interface ItemRow { id: string; kind: 'entry' | 'sink'; target_id: string; repository_id: string; path: string; start_line: number; end_line: number; status: string; verdict: string | null; finding_id?: string | null }
 
 /** `only`: restrict items to these target ids (incremental impact set). */
 export function ensureCoverageItems(rt: AuditRuntime, only?: ReadonlySet<string>): number {
@@ -38,6 +38,25 @@ export function ensureCoverageItems(rt: AuditRuntime, only?: ReadonlySet<string>
   return n;
 }
 
+/**
+ * Incremental: only the impact set is in scope for coverage; outside it everything is not_covered.
+ * A full-scan fallback covers its repository like a full audit (per target); undefined = everything.
+ */
+export function incrementalCoverageTargets(rt: AuditRuntime): Set<string> | undefined {
+  const impacts = rt.impacts();
+  if (rt.targets.every((t) => impacts.get(t.name)?.mode === 'full_scan')) return undefined;
+  const inScope = scopePredicate(rt.strategy.scope.include, rt.strategy.scope.exclude);
+  const out = new Set<string>();
+  for (const t of rt.targets) {
+    const impact = impacts.get(t.name);
+    if (!impact) continue;
+    const idx = rt.indexes.get(t.name);
+    if (impact.mode !== 'full_scan') for (const id of [...impact.affectedEntrypoints, ...impact.affectedSinks]) out.add(id);
+    else if (idx) for (const c of coverageTargets(idx, inScope)) out.add(c.targetId);
+  }
+  return out;
+}
+
 function readEnough(rt: AuditRuntime, item: ItemRow): boolean {
   const repo = rt.repos.find((r) => r.id === item.repository_id);
   if (!repo) return false;
@@ -47,6 +66,9 @@ function readEnough(rt: AuditRuntime, item: ItemRow): boolean {
 export function markConcluded(rt: AuditRuntime, kind: 'entry' | 'sink', targetId: string, stepId: string, verdict: string, findingId?: string): void {
   const item = rt.store.get<ItemRow>('SELECT * FROM coverage_item WHERE audit_id = ? AND kind = ? AND target_id = ?', rt.auditId, kind, targetId);
   if (!item) return;
+  // A unit a finding concluded keeps that conclusion. A later ruled_out (“already submitted as F1”) replaced
+  // it, the recheck then reopened the unit as a wrong exclusion, and the finding no longer covered it.
+  if (item.finding_id && item.verdict === 'finding' && verdict !== 'finding') return;
   if (readEnough(rt, item)) {
     rt.store.update('coverage_item', { id: item.id }, { status: 'concluded', verdict, concluded_by_step: stepId, ...(findingId ? { finding_id: findingId } : {}) });
   } else {

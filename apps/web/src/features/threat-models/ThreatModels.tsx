@@ -144,7 +144,7 @@ function ThreatModelDetail({ pid, tid, onBack }: { pid: string; tid: string; onB
         </div>
       </div>
       <div className={ui.faint} style={{ fontSize: 12 }}>
-        {d.generatedAt ? `生成于 ${fmt.date(d.generatedAt)}` : '尚未生成'}{d.model ? ` · ${d.model}` : ''}{d.tokensIn + d.tokensOut > 0 ? ` · ${fmt.compact(d.tokensIn + d.tokensOut)} tokens · ${fmt.cost(d.costMicros)}` : ''}
+        {d.generatedAt ? `生成于 ${fmt.date(d.generatedAt)}` : '尚未生成'}{d.model ? ` · ${d.model}` : ''}{d.tokensIn + d.tokensOut > 0 ? ` · ${fmt.tokens(d.tokensIn + d.tokensOut)} tokens · ${fmt.cost(d.costMicros)}` : ''}
       </div>
       {d.syncs.length > 0 && (
         <div className={ui.faint} style={{ fontSize: 12 }}>

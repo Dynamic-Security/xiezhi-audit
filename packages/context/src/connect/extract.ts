@@ -4,7 +4,7 @@
 // gateway routes, declared dependencies). Deterministic; context repositories only yield contracts.
 import { parse as parseYaml } from 'yaml';
 import { Parser, type Node } from 'web-tree-sitter';
-import { sha256Hex, type Connection, type RepoSignals, type StructIndex } from '@xiezhi/contracts';
+import { isTestPath, sha256Hex, type Connection, type RepoSignals, type StructIndex } from '@xiezhi/contracts';
 import { loadLanguage, type GrammarLang } from '../index/grammar.js';
 import type { SnapshotView } from '../snapshot/view.js';
 import { CSHARP_CLIENTS } from './clients-csharp.js';
@@ -19,7 +19,9 @@ import { RUST_CLIENTS } from './clients-rust.js';
  * 3: the file limit counts only files the extractor reads, and a cut is reported.
  * 4: Ruby / Rust clients.
  */
-export const CONNECT_VERSION = 4;
+export const CONNECT_VERSION = 5;
+/** End-to-end test scripts outside test directories (`scripts/run-web-local-e2e.mjs`, `e2e/login.spec.ts`). */
+const E2E_SCRIPT = /(^|\/)e2e\/|[-._]e2e\.[cm]?[jt]sx?$/;
 const MAX_FILE_BYTES = 512 * 1024;
 /** Files read per repository (source with a client grammar, proto, YAML / JSON, properties, nginx conf, XML). */
 export const MAX_CONNECT_FILES = 8000;
@@ -546,7 +548,10 @@ export async function extractConnections(view: SnapshotView, index: StructIndex 
     if (f.size > MAX_FILE_BYTES || f.path.includes('node_modules/')) continue;
     const g = grammarFor(f.path);
     if (!g && !CONFIG_FILE.test(f.path)) continue;
-    // The limit counts files that would be read, and the files past it are reported.
+    // Tests and end-to-end scripts call the service they test; they are no service of their own (one project: 11 of 15
+    // client calls came from them and drew an “unknown external service”).
+    if (g && (isTestPath(f.path) || E2E_SCRIPT.test(f.path))) continue;
+    // Review round 5 CTX-2: the limit counts files that would be read, and the files past it are reported.
     if (++n > maxFiles) {
       if (cut) cut.skipped++; else cut = { limit: maxFiles, skipped: 1, firstSkipped: f.path };
       continue;

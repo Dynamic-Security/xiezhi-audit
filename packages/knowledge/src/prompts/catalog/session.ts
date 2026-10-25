@@ -145,7 +145,7 @@ export const SESSION: PromptDef[] = [
   {
     id: 'tool.ask_user', group: 'tool', title: '工具：ask_user', readonly: '工具与字段说明是引擎与模型之间的契约，只读展示',
     description: '向用户提问工具说明（非阻塞）。',
-    text: 'Ask the user a question you cannot answer from code (deployment, gateway, business rules). Non-blocking: continue other analysis; mark related conclusions as pending.',
+    text: 'Ask the user a question you cannot answer from code (deployment, gateway, business rules). Non-blocking: continue other analysis; mark related conclusions as pending. Give `options`: 2–4 short, mutually exclusive answers that fit this question (each at most 40 characters, in the user\'s language, e.g. “是，内部服务仅网关可达” / “否，部分服务可直接访问” / “不确定”) so the user can answer with one click; omit them only for an open-ended question.',
   },
   {
     id: 'feedback.ask_user.recorded', group: 'tool', title: '工具结果：问题已记录', readonly: '校验反馈：提交不合规时返回给模型的说明，只读展示',

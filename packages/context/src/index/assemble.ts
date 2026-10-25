@@ -129,7 +129,9 @@ export function assemble(repo: string, rootHash: string, rulesVersion: string, f
         ...(e.channel ? { pathTemplate: e.channel.route } : e.rpc ? (e.pathTemplate ? { pathTemplate: e.pathTemplate } : {}) : { httpMethod: e.httpMethod, pathTemplate: e.pathTemplate }),
         handler: handler ?? `${repo}:${f.path}#<unresolved:${e.handler.text ?? 'anonymous'}>`,
         path: handlerSym?.path ?? e.path,
-        range: handlerSym?.range ?? e.handler.range ?? e.range,
+        // An inline closure (C# minimal-API lambda, Go func literal, Ktor block) carries its own range and the symbol of
+        // the function that contains it; the entry is the closure, not that whole function (e.g. top-level Program.Main).
+        range: (e.handler.symbolId && e.handler.range) || (handlerSym?.range ?? e.handler.range ?? e.range),
         middlewares: e.middlewares,
         authSignals,
         ruleId: e.ruleId,

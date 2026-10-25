@@ -1,6 +1,6 @@
 // Projections from store rows to API DTOs. Each function lists the exposed fields
 // explicitly, acting as the response whitelist: internal columns, refs and secrets never leave.
-import { BUDGET_STAGES, SEVERITIES, derivePhase, normalizePending, stageMeta, type BudgetStage, upgradeStrategy, type AuditDetailDto, type AuditSummaryDto, type CodeLocDto, type ReverifyItemDto, type SuspectedMatchDto, type EventDto, type FindingDto, type GateDto, type PlanDto, type ProjectDto, type QuestionDto, type RepoDto, type RevisionDto, type SeverityCounts, type AnalysisDto, type RepoAnalysisDto, type RepoSignals, type StepDto, type VulnDetailDto, type VulnSummaryDto, type AuditEvent } from '@xiezhi/contracts';
+import { BUDGET_STAGES, SEVERITIES, contextItem, derivePhase, normalizePending, stageMeta, type BudgetStage, upgradeStrategy, type AuditDetailDto, type AuditSummaryDto, type ModelRef, type CodeLocDto, type ReverifyItemDto, type SuspectedMatchDto, type EventDto, type FindingDto, type GateDto, type PlanDto, type ProjectDto, type QuestionDto, type RepoDto, type RevisionDto, type SeverityCounts, type AnalysisDto, type RepoAnalysisDto, type RepoSignals, type StepDto, type VulnDetailDto, type VulnSummaryDto, type AuditEvent } from '@xiezhi/contracts';
 import { fromJson, type Store } from '@xiezhi/store';
 import { budgetSuggestion, listSteps, queries as Q, runningDelta, type AuditPlan, type AuditRow, type GateResult, type RepoRoleOutput, type StepRow } from '@xiezhi/engine';
 import type { FindingDetail } from '@xiezhi/report';
@@ -130,6 +130,8 @@ export function auditDetail(store: Store, a: AuditRow): AuditDetailDto {
     lastEventSeq: Q.lastEventSeq(store, a.id),
     exports: { md: !!refs.md, json: !!refs.json, sarif: !!refs.sarif },
     reverify: a.scene === 'reverify' ? reverifyItems(store, a) : null,
+    filteredModels: Q.filteredModels(store, a.id),
+    modelSwitches: Object.entries(fromJson<Record<string, ModelRef>>(a.model_switches, {})).map(([from, to]) => ({ from, to })),
   };
 }
 
@@ -156,7 +158,7 @@ export function planDto(store: Store, a: AuditRow & { draft_rev?: number }): Pla
     auditId: a.id, status: a.status, revision: a.draft_rev ?? 1, scene: a.scene as PlanDto['scene'],
     plan: plan ? {
       summary: plan.submitted.summary, focusDirections: plan.submitted.focusDirections, plannedKnowledge: plan.submitted.plannedKnowledge ?? [],
-      contextNeeded: plan.submitted.contextNeeded, limitations: plan.limitations, scale: plan.scale,
+      contextNeeded: plan.submitted.contextNeeded.map((c) => contextItem(c).question), limitations: plan.limitations, scale: plan.scale,
       estimate: {
         tokens: plan.estimate.tokens, durationSec: plan.estimate.durationSec, cost: plan.estimate.cost ?? null,
         ...(plan.estimate.byStage ? { stages: plan.estimate.byStage.map((x) => ({ stage: x.stage, label: stageMeta(x.stage).label, tokens: x.tokens, switch: stageMeta(x.stage).switch ?? null })) } : {}),
@@ -173,11 +175,12 @@ export function planDto(store: Store, a: AuditRow & { draft_rev?: number }): Pla
   };
 }
 
-export function questionDto(q: { id: string; audit_id: string; text: string; blocking: number; status: string; answer: string | null; save_as_skill?: string; as_fact?: number; created_at: number; answered_at: number | null }): QuestionDto {
+export function questionDto(q: { id: string; audit_id: string; text: string; blocking: number; status: string; answer: string | null; save_as_skill?: string; as_fact?: number; options?: string | null; created_at: number; answered_at: number | null }): QuestionDto {
   return {
     id: q.id, auditId: q.audit_id, text: q.text, blocking: !!q.blocking, status: q.status as QuestionDto['status'], answer: q.answer,
     saveAsSkill: (q.save_as_skill ?? 'none') as QuestionDto['saveAsSkill'],
     asFact: !!q.as_fact,
+    options: fromJson<string[]>(q.options ?? null, []),
     createdAt: isoReq(q.created_at), answeredAt: iso(q.answered_at),
   };
 }

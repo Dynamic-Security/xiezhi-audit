@@ -35,7 +35,7 @@ export function EgressView({ aid, live }: { aid: string; live: boolean }) {
                   <td title={r.files.map((f) => `${f.repo ? `${f.repo}:` : ''}${f.path}`).join('\n')}>{r.files.length}</td>
                   <td title={r.facts.join('\n')}>{r.facts.length}</td>
                   <td>{r.withheldFacts || ''}</td>
-                  <td className={ui.mono}>{fmt.compact(r.tokens.input)} / {fmt.compact(r.tokens.output)}</td>
+                  <td className={ui.mono}>{fmt.tokens(r.tokens.input)} / {fmt.tokens(r.tokens.output)}</td>
                   <td>{r.status}</td>
                 </tr>
               ))}

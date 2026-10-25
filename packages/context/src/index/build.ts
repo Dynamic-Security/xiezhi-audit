@@ -18,7 +18,7 @@ import type { ExtractInput } from './types.js';
  * Version of the extracted facts, part of the cache key (with the parsed languages): bump it when the indexer extracts
  * something new or differently, so cached indexes are rebuilt.
  */
-export const INDEXER_VERSION = '1';
+export const INDEXER_VERSION = '2';
 
 export interface IndexResult {
   index: StructIndex;

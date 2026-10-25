@@ -19,7 +19,7 @@ export class ErrorRing {
 }
 
 /** Only these detail keys may reach clients (whitelist). */
-const DETAIL_KEYS = new Set(['revision', 'status', 'field', 'issues', 'holder', 'expected', 'errors', 'current']);
+const DETAIL_KEYS = new Set(['revision', 'status', 'field', 'issues', 'holder', 'expected', 'errors', 'current', 'references']);
 
 export function toApiError(e: unknown, requestId: string, redactOpts: RedactOptions): { status: number; body: ApiErrorBody; logMessage: string } {
   if (e instanceof AppError) {

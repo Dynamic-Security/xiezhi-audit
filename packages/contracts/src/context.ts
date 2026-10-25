@@ -155,7 +155,8 @@ export interface ExecResult {
 // incremental impact analysis.
 export const IMPACT_MODES = ['precise', 'heuristic', 'full_scan'] as const;
 export type ImpactMode = (typeof IMPACT_MODES)[number];
-export const IMPACT_FALLBACK_REASONS = ['no_baseline_index', 'parse_gap_in_changed_files', 'too_many_changes', 'unresolved_edges_dominant', 'ast_disabled'] as const;
+/** `no_baseline`: a target of a multi-repository incremental audit without a baseline is audited in full. */
+export const IMPACT_FALLBACK_REASONS = ['no_baseline_index', 'parse_gap_in_changed_files', 'too_many_changes', 'unresolved_edges_dominant', 'ast_disabled', 'no_baseline'] as const;
 export type ImpactFallbackReason = (typeof IMPACT_FALLBACK_REASONS)[number];
 
 export const ChangedFiles = Type.Object({
@@ -200,24 +201,10 @@ export const ImpactSet = Type.Object({
   affectedEntrypoints: Type.Array(Type.String()),
   affectedSinks: Type.Array(Type.String()),
   stats: Type.Object({ indexableFiles: Type.Integer(), changedIndexableFiles: Type.Integer(), unresolvedCallers: Type.Integer(), resolvedCallers: Type.Integer() }, { additionalProperties: false }),
-  /** Diff-seeded variant search (`impact.variantSearch`): patterns abstracted from the change and their unchanged hits. */
-  variants: Type.Optional(Type.Array(Type.Object({
-    description: Type.String(), grep: Type.String(),
-    hits: Type.Array(Type.Object({ path: Type.String(), line: Type.Integer({ minimum: 1 }), text: Type.String() }, { additionalProperties: false })),
-  }, { additionalProperties: false }))),
 }, { additionalProperties: false });
 export type ImpactSet = Static<typeof ImpactSet>;
 
-/** The agent's abstraction of the change into search patterns. */
-export const SubmitVariantPatterns = Type.Object({
-  patterns: Type.Array(Type.Object({
-    description: Type.String({ minLength: 1, maxLength: 300 }),
-    /** ripgrep regular expression locating the same pattern elsewhere. */
-    grep: Type.String({ minLength: 3, maxLength: 300 }),
-    glob: Type.Optional(Type.String({ maxLength: 100 })),
-  }, { additionalProperties: false }), { maxItems: 5 }),
-}, { additionalProperties: false });
-export type SubmitVariantPatterns = Static<typeof SubmitVariantPatterns>;
+
 
 // ---- repository profile signals and roles ---------------------------------------------
 /** Gateway configuration kinds recognized deterministically. */

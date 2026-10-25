@@ -19,12 +19,13 @@ const TOKEN_PATTERNS: { kind: string; label: string; re: RegExp }[] = [
   { kind: 'github_token', label: 'GitHub 令牌', re: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/ },
   { kind: 'slack_token', label: 'Slack 令牌', re: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/ },
   { kind: 'google_api_key', label: 'Google API Key', re: /\bAIza[0-9A-Za-z_-]{35}\b/ },
+  { kind: 'laravel_app_key', label: 'Laravel APP_KEY', re: /["']base64:[A-Za-z0-9+/]{40,}={0,2}["']/ },
 ];
 
 /** Names that say a value is a secret, in config keys, variables, constants and setters. */
 const NAME = '(?:secret|passw(?:or)?d|pwd|token|api[_-]?key|access[_-]?key|private[_-]?key|cipher[_-]?key|signing[_-]?key|encrypt(?:ion)?[_-]?key|client[_-]?secret)';
-/** `name: value` / `name = "value"` (config or code). */
-const ASSIGN_RE = new RegExp(`(?:^|[^A-Za-z0-9])([A-Za-z0-9_.-]*${NAME}[A-Za-z0-9_.-]*)["']?\\s*[:=]\\s*(["']?)([^\\s"'\`,;)]{8,})\\2`, 'i');
+/** `name: value` / `name = "value"` / `'name' => 'value'` (config or code; PHP arrays, Ruby hashes). */
+const ASSIGN_RE = new RegExp(`(?:^|[^A-Za-z0-9])([A-Za-z0-9_.-]*${NAME}[A-Za-z0-9_.-]*)["']?\\s*(?:=>|[:=])\\s*(["']?)([^\\s"'\`,;)]{8,})\\2`, 'i');
 /** `setCipherKey("value")`, `withSecret(Base64.decode("value"))`. */
 const SETTER_RE = new RegExp(`\\b(?:set|with)${NAME}\\s*\\(\\s*(?:[\\w.]+\\(\\s*)?(["'])([^"']{8,})\\1`, 'i');
 
@@ -35,6 +36,14 @@ const SETTER_RE = new RegExp(`\\b(?:set|with)${NAME}\\s*\\(\\s*(?:[\\w.]+\\(\\s*
  */
 const TYPED_RE = new RegExp(`(?:^|[^A-Za-z0-9])([A-Za-z0-9_]*${NAME}[A-Za-z0-9_]*)\\s*:\\s*[&\\w<>\\[\\]' ]{1,40}?\\s*=\\s*(["'])([^"']{8,})\\2`, 'i');
 const SYMBOL_SET_RE = new RegExp(`\\b(?:set|config\\.\\w+)\\s*\\(?\\s*:([A-Za-z0-9_]*${NAME}[A-Za-z0-9_]*)\\s*,\\s*(["'])([^"']{8,})\\2`, 'i');
+
+/**
+ * A password inside a connection string: `"Server=db;User Id=sa;Password=…;"` (ADO.NET / ODBC) or the
+ * user-info of a URL, `postgres://app:…@db/app`. The name sits inside the literal, so the forms above never see it.
+ */
+const CONN_STR_RE = /(?:^|[;"'])\s*(?:password|pwd)\s*=\s*([^;"'\s{}]+)\s*(?:;|["'])/i;
+const CONN_STR_CTX = /(?:server|data source|host|user id|uid|database|initial catalog)\s*=/i;
+const URL_PASSWORD_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@'"]+:([^\s@/'"]+)@/i;
 
 const CONFIG_FILE = /\.(ya?ml|properties|ini|toml|conf|cfg|json|xml|env\.\w+|config)$/i;
 const SKIP_PATH = /(^|\/)(tests?|__tests__|spec|specs|fixtures?|mocks?|examples?|samples?|docs?|node_modules|vendor)\//i;
@@ -85,6 +94,8 @@ export function scanSecretText(path: string, text: string): SecretHit[] {
     if (setter && secretLike(setter[2]!)) { out.push({ line: i + 1, column: setter.index + 1, kind: 'assignment', label: '写死的密钥 / 口令', shown: redact(setter[2]!) }); continue; }
     const typed = TYPED_RE.exec(line) ?? SYMBOL_SET_RE.exec(line);
     if (typed && secretLike(typed[3]!)) { out.push({ line: i + 1, column: (typed.index ?? 0) + 1, kind: 'assignment', label: `写死的密钥 / 口令（${typed[1]!.slice(0, 60)}）`, shown: redact(typed[3]!) }); continue; }
+    const conn = (CONN_STR_CTX.test(line) ? CONN_STR_RE.exec(line) : null) ?? URL_PASSWORD_RE.exec(line);
+    if (conn && secretLike(conn[1]!)) { out.push({ line: i + 1, column: conn.index + 1, kind: 'connection_password', label: '连接串中写死的口令', shown: redact(conn[1]!) }); continue; }
     const a = ASSIGN_RE.exec(line);
     // In code a value must be a string literal (`password = req.get("p")` is not a secret); config values may be bare.
     if (a && (config || a[2]) && secretLike(a[3]!)) out.push({ line: i + 1, column: (a.index ?? 0) + 1, kind: 'assignment', label: `写死的密钥 / 口令（${a[1]!.slice(0, 60)}）`, shown: redact(a[3]!) });

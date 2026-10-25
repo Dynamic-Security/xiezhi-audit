@@ -101,6 +101,11 @@ export function matchConnections(conns: Connection[], repos: RepoNames[], explic
           const best = Math.max(...hits.filter((h) => h.s === 'exact').map((h) => spec(h.p.key.pathTemplate ?? '/')), -1);
           if (best >= 0) hits = hits.filter((h) => h.s !== 'exact' || spec(h.p.key.pathTemplate ?? '/') === best);
         }
+        // A monorepo (a web front end calling its own api-gateway) serves the call itself: no topology edge, and
+        // not a service missing from the project. A call addressed to a domain name (`payments.example.com`) still is.
+        const internalHost = !c.serviceHint || !c.serviceHint.includes('.');
+        if (!hits.length && !target && internalHost && provides.some((p) => p.kind === 'http' && p.repo === c.repo
+          && comparePaths(c.key.pathTemplate ?? '/', p.key.pathTemplate ?? '/') && (!c.key.method || !p.key.method || c.key.method === p.key.method))) break;
         if (!hits.length) {
           add(c, null, target?.repo ?? null, target ? (strongSource(target) ? 'confirmed' : 'inferred') : 'inferred', target ? `service ${c.serviceHint} → ${target.repo} (${target.source}); no matching route` : 'no provider in the project');
           break;

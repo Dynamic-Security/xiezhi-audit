@@ -85,7 +85,9 @@ export function serverCommand(language: LspLanguage, scratch: string): { args: s
     case 'go': return { args: ['serve'], env: { ...GOPLS_ENV, GOCACHE: join(scratch, 'gocache'), GOMODCACHE: join(scratch, 'gomodcache') } };
     case 'java': return { args: ['-configuration', join(scratch, 'jdtls-config'), '-data', join(scratch, 'jdtls-data')], env: { JAVA_TOOL_OPTIONS: '-Xmx2g' } };
     case 'python': return { args: ['--stdio'], env: { PYTHONNOUSERSITE: '1', PYTHONDONTWRITEBYTECODE: '1' } };
-    case 'typescript': return { args: ['--stdio'], env: { NODE_OPTIONS: '--max-old-space-size=3072', TSS_LOG: '' } };
+    // tsserver's heap limit goes through `maxTsServerMemory` (initializationOptions): NODE_OPTIONS is a reserved
+    // variable of the service executor (it can load code into any node process), so it would refuse to start.
+    case 'typescript': return { args: ['--stdio'], env: { TSS_LOG: '' } };
   }
 }
 
@@ -94,7 +96,7 @@ export function initializationOptions(language: LspLanguage): unknown {
     case 'go': return { codelenses: {}, analyses: {}, staticcheck: false, vulncheck: 'Off', 'ui.diagnostic.analyses': {}, directoryFilters: ['-**/node_modules'] };
     case 'java': return { settings: { java: { import: { maven: { enabled: false }, gradle: { enabled: false } }, autobuild: { enabled: false }, configuration: { updateBuildConfiguration: 'disabled' } } } };
     case 'python': return {};
-    case 'typescript': return { disableAutomaticTypingAcquisition: true, preferences: { includePackageJsonAutoImports: 'off' }, tsserver: { logVerbosity: 'off' } };
+    case 'typescript': return { disableAutomaticTypingAcquisition: true, maxTsServerMemory: 3072, preferences: { includePackageJsonAutoImports: 'off' }, tsserver: { logVerbosity: 'off' } };
   }
 }
 

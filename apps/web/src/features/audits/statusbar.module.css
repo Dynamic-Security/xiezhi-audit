@@ -16,6 +16,7 @@
 .failed { color: var(--warn); }
 .failed .dot { border-color: var(--warn); color: var(--warn); }
 .skipped { color: var(--text-3); text-decoration: line-through; }
+.issues { color: var(--warn); font-size: 12px; }
 .selected { border-color: var(--accent); }
 @keyframes pulse { 50% { box-shadow: 0 0 0 5px transparent; } }
 @media (prefers-reduced-motion: reduce) { .running .dot { animation: none; } }

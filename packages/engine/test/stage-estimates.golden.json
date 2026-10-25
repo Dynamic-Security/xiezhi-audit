@@ -1,0 +1,370 @@
+{
+  "full default · plain": {
+    "tokens": {
+      "p50": 2670185,
+      "p90": 4958915
+    },
+    "durationSec": {
+      "p50": 1185,
+      "p90": 2133
+    },
+    "cost": {
+      "p50": 4.272296,
+      "p90": 7.934264,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 720000,
+      "triage": 45000,
+      "hunt": 2160000,
+      "reconcile": 8000,
+      "challenge": 384000
+    }
+  },
+  "full default · calibrated": {
+    "tokens": {
+      "p50": 3825521,
+      "p90": 7104539
+    },
+    "durationSec": {
+      "p50": 1185,
+      "p90": 2133
+    },
+    "cost": {
+      "p50": 6.120833600000001,
+      "p90": 11.3672624,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 720000,
+      "triage": 45000,
+      "hunt": 3672000,
+      "reconcile": 8000,
+      "challenge": 307200
+    }
+  },
+  "full lead + gap + M18 stages · plain": {
+    "tokens": {
+      "p50": 9556155,
+      "p90": 17747145
+    },
+    "durationSec": {
+      "p50": 1185,
+      "p90": 2133
+    },
+    "cost": {
+      "p50": 15.289848,
+      "p90": 28.395432,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 720000,
+      "threat-model": 40000,
+      "triage": 45000,
+      "hunt": 8550000,
+      "external": 324000,
+      "checklist": 504000,
+      "recheck": 216000,
+      "gap": 1080000,
+      "reconcile": 8000,
+      "challenge": 384000
+    }
+  },
+  "full lead + gap + M18 stages · calibrated": {
+    "tokens": {
+      "p50": 9494331,
+      "p90": 17632329
+    },
+    "durationSec": {
+      "p50": 1185,
+      "p90": 2133
+    },
+    "cost": {
+      "p50": 15.190929600000002,
+      "p90": 28.211726400000003,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 720000,
+      "threat-model": 40000,
+      "triage": 45000,
+      "hunt": 8550000,
+      "external": 324000,
+      "checklist": 504000,
+      "recheck": 216000,
+      "gap": 1080000,
+      "reconcile": 8000,
+      "challenge": 307200
+    }
+  },
+  "full crossed lead · plain": {
+    "tokens": {
+      "p50": 39137490,
+      "p90": 72683910
+    },
+    "durationSec": {
+      "p50": 2873,
+      "p90": 5172
+    },
+    "cost": {
+      "p50": 62.619984,
+      "p90": 116.294256,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 1800000,
+      "threat-model": 40000,
+      "triage": 90000,
+      "hunt": 42300000,
+      "checklist": 504000,
+      "recheck": 216000,
+      "gap": 2700000,
+      "reconcile": 8000,
+      "challenge": 960000
+    }
+  },
+  "full crossed lead · calibrated": {
+    "tokens": {
+      "p50": 38982930,
+      "p90": 72396870
+    },
+    "durationSec": {
+      "p50": 2873,
+      "p90": 5172
+    },
+    "cost": {
+      "p50": 62.372688,
+      "p90": 115.834992,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 1800000,
+      "threat-model": 40000,
+      "triage": 90000,
+      "hunt": 42300000,
+      "checklist": 504000,
+      "recheck": 216000,
+      "gap": 2700000,
+      "reconcile": 8000,
+      "challenge": 768000
+    }
+  },
+  "full lean · plain": {
+    "tokens": {
+      "p50": 579600,
+      "p90": 1076400
+    },
+    "durationSec": {
+      "p50": 435,
+      "p90": 783
+    },
+    "cost": {
+      "p50": 0.92736,
+      "p90": 1.72224,
+      "currency": "USD"
+    },
+    "byStep": {
+      "hunt": 720000
+    }
+  },
+  "full lean · calibrated": {
+    "tokens": {
+      "p50": 985320,
+      "p90": 1829880
+    },
+    "durationSec": {
+      "p50": 435,
+      "p90": 783
+    },
+    "cost": {
+      "p50": 1.576512,
+      "p90": 2.927808,
+      "currency": "USD"
+    },
+    "byStep": {
+      "hunt": 1224000
+    }
+  },
+  "full hypotheses, untiered review · plain": {
+    "tokens": {
+      "p50": 2509990,
+      "p90": 4661410
+    },
+    "durationSec": {
+      "p50": 810,
+      "p90": 1458
+    },
+    "cost": {
+      "p50": 4.015984,
+      "p90": 7.458256,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 480000,
+      "threat-model": 40000,
+      "triage": 30000,
+      "hunt": 1440000,
+      "hypotheses": 720000,
+      "reconcile": 8000,
+      "challenge": 400000
+    }
+  },
+  "full hypotheses, untiered review · calibrated": {
+    "tokens": {
+      "p50": 3662750,
+      "p90": 6802250
+    },
+    "durationSec": {
+      "p50": 810,
+      "p90": 1458
+    },
+    "cost": {
+      "p50": 5.8604,
+      "p90": 10.8836,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 480000,
+      "threat-model": 40000,
+      "triage": 30000,
+      "hunt": 2448000,
+      "hypotheses": 1224000,
+      "reconcile": 8000,
+      "challenge": 320000
+    }
+  },
+  "full hypotheses with lead · plain": {
+    "tokens": {
+      "p50": 5399944,
+      "p90": 10028466
+    },
+    "durationSec": {
+      "p50": 810,
+      "p90": 1458
+    },
+    "cost": {
+      "p50": 8.6399104,
+      "p90": 16.0455456,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 480000,
+      "threat-model": 40000,
+      "triage": 30000,
+      "hunt": 5750004,
+      "reconcile": 8000,
+      "challenge": 400000
+    }
+  },
+  "full hypotheses with lead · calibrated": {
+    "tokens": {
+      "p50": 5335544,
+      "p90": 9908866
+    },
+    "durationSec": {
+      "p50": 810,
+      "p90": 1458
+    },
+    "cost": {
+      "p50": 8.5368704,
+      "p90": 15.854185600000001,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 480000,
+      "threat-model": 40000,
+      "triage": 30000,
+      "hunt": 5750004,
+      "reconcile": 8000,
+      "challenge": 320000
+    }
+  },
+  "incremental lead · plain": {
+    "tokens": {
+      "p50": 1040865,
+      "p90": 1933035
+    },
+    "durationSec": {
+      "p50": 252,
+      "p90": 454
+    },
+    "cost": {
+      "p50": 1.665384,
+      "p90": 3.092856,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 54000,
+      "threat-model": 40000,
+      "triage": 15000,
+      "hunt": 1122000,
+      "recheck": 54000,
+      "reconcile": 8000
+    }
+  },
+  "incremental lead · calibrated": {
+    "tokens": {
+      "p50": 1588587,
+      "p90": 2950233
+    },
+    "durationSec": {
+      "p50": 252,
+      "p90": 454
+    },
+    "cost": {
+      "p50": 2.5417392000000003,
+      "p90": 4.7203728,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 54000,
+      "threat-model": 40000,
+      "triage": 15000,
+      "hunt": 1802400,
+      "recheck": 54000,
+      "reconcile": 8000
+    }
+  },
+  "incremental generalist · plain": {
+    "tokens": {
+      "p50": 192395,
+      "p90": 357305
+    },
+    "durationSec": {
+      "p50": 252,
+      "p90": 454
+    },
+    "cost": {
+      "p50": 0.307832,
+      "p90": 0.571688,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 54000,
+      "triage": 15000,
+      "hunt": 162000,
+      "reconcile": 8000
+    }
+  },
+  "incremental generalist · calibrated": {
+    "tokens": {
+      "p50": 283682,
+      "p90": 526838
+    },
+    "durationSec": {
+      "p50": 252,
+      "p90": 454
+    },
+    "cost": {
+      "p50": 0.4538912,
+      "p90": 0.8429408,
+      "currency": "USD"
+    },
+    "byStep": {
+      "profile": 54000,
+      "triage": 15000,
+      "hunt": 275400,
+      "reconcile": 8000
+    }
+  }
+}

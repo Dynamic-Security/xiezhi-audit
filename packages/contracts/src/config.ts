@@ -20,6 +20,8 @@ export const ModelProviderConfig = Type.Object({
     contextWindow: Type.Optional(Type.Integer({ minimum: 1024 })),
     maxTokens: Type.Optional(Type.Integer({ minimum: 256 })),
     reasoning: Type.Optional(Type.Boolean()),
+    /** Accepts image input (conversation attachments); absent means yes. */
+    images: Type.Optional(Type.Boolean()),
   }, { additionalProperties: false })),
 }, { additionalProperties: false });
 export type ModelProviderConfig = Static<typeof ModelProviderConfig>;
@@ -56,6 +58,24 @@ export const StageModelsConfig = Type.Object(
 );
 export type StageModelsConfig = Static<typeof StageModelsConfig>;
 
+/** External tools: absolute paths; when absent they are looked up on PATH and in the usual places. */
+export const ToolsConfig = Type.Object({
+  rgPath: Type.Optional(Type.String()),
+  gitPath: Type.Optional(Type.String()),
+  /** Language servers: absolute paths; when absent they are looked up in the usual places. */
+  goplsPath: Type.Optional(Type.String()),
+  jdtlsPath: Type.Optional(Type.String()),
+  /** The Go toolchain gopls uses (`go` binary). */
+  goPath: Type.Optional(Type.String()),
+  /** `pyright-langserver` and `typescript-language-server`; both need `node` (nodePath or PATH). */
+  pyrightPath: Type.Optional(Type.String()),
+  tsLspPath: Type.Optional(Type.String()),
+  nodePath: Type.Optional(Type.String()),
+}, { additionalProperties: false });
+export type ToolsConfig = Static<typeof ToolsConfig>;
+/** Keys of `tools` in schema order: settable from the CLI (`tools.<key>`) and the general settings page. */
+export const TOOL_PATH_KEYS = Object.keys(ToolsConfig.properties) as (keyof ToolsConfig)[];
+
 export const AppConfig = Type.Object({
   modelProviders: Type.Array(ModelProviderConfig),
   /** “默认模型”: every stage without its own model uses it. */
@@ -90,19 +110,7 @@ export const AppConfig = Type.Object({
   gitCredentials: Type.Optional(Type.Array(GitCredentialConfig, { maxItems: 100 })),
   /** Connector credentials by connector id, referenced from connector configuration as `${secret:key}`. */
   connectorSecrets: Type.Optional(Type.Record(Type.String({ maxLength: 64 }), Type.Record(Type.String({ pattern: '^[A-Za-z0-9_.-]{1,64}$' }), Type.String({ maxLength: 8192 })))),
-  tools: Type.Object({
-    rgPath: Type.Optional(Type.String()),
-    gitPath: Type.Optional(Type.String()),
-    /** Language servers: absolute paths; when absent they are looked up in the usual places. */
-    goplsPath: Type.Optional(Type.String()),
-    jdtlsPath: Type.Optional(Type.String()),
-    /** The Go toolchain gopls uses (`go` binary). */
-    goPath: Type.Optional(Type.String()),
-    /** `pyright-langserver` and `typescript-language-server`; both need `node` (nodePath or PATH). */
-    pyrightPath: Type.Optional(Type.String()),
-    tsLspPath: Type.Optional(Type.String()),
-    nodePath: Type.Optional(Type.String()),
-  }, { additionalProperties: false }),
+  tools: ToolsConfig,
   export: Type.Object({
     snippets: Type.Boolean(),
     localRoots: Type.Boolean(),
@@ -169,4 +177,77 @@ export function configStageModel(c: Pick<AppConfig, 'defaultModel' | 'stageModel
   const v = c.stageModels?.[stage];
   if (v === null && (NO_MODEL_STAGES as readonly string[]).includes(stage)) return null;
   return v ?? c.defaultModel ?? null;
+}
+
+const PROVIDER_REF_STAGE_LABEL: Record<ConfigModelStage, string> = {
+  profile: '计划与画像', scope: '影响范围', triage: '初筛', hunt: '领域审计', logic: '风险假设', explore: '深度探索',
+  challenge: '对抗复核', merge: '归并', verify: '复验与风险研判', report: '报告', chat: '对话',
+};
+const PROVIDER_REF_SCENE_LABEL: Record<(typeof SCENES)[number], string> = { full: '全量审计', incremental: '增量审计', risk_hunt: '风险排查', reverify: '漏洞复验' };
+
+/** One setting that names a model of a provider: `setting` is its config path, `label` what the page calls it. */
+export interface ProviderReference { setting: string; label: string; model: string }
+
+const refOf = (v: unknown, id: string): string | null => {
+  const m = v as Partial<ModelRef> | null | undefined;
+  return m && typeof m === 'object' && m.provider === id && typeof m.model === 'string' ? `${m.provider}/${m.model}` : null;
+};
+
+/**
+ * The settings that point at provider `id`: default, fallback and per-stage models, the confidential-fact
+ * models, and the scene defaults' cross-check group (plus per-stage models an older scene layer may still hold).
+ */
+export function providerReferences(cfg: AppConfig, id: string): ProviderReference[] {
+  const out: ProviderReference[] = [];
+  const add = (setting: string, label: string, v: unknown) => { const model = refOf(v, id); if (model) out.push({ setting, label, model }); };
+  add('defaultModel', '默认模型', cfg.defaultModel);
+  add('fallbackModel', '备用模型', cfg.fallbackModel);
+  for (const k of CONFIG_MODEL_STAGES) add(`stageModels.${k}`, `各阶段模型 · ${PROVIDER_REF_STAGE_LABEL[k]}`, cfg.stageModels?.[k]);
+  for (const k of cfg.confidentialModels ?? []) if (k.startsWith(`${id}/`)) out.push({ setting: 'confidentialModels', label: '可接收机密事实（模型标签）', model: k });
+  for (const scene of SCENES) {
+    const layer = (cfg.sceneDefaults as Record<string, Record<string, unknown> | undefined>)[scene];
+    if (!layer) continue;
+    const label = `任务创建默认值 · ${PROVIDER_REF_SCENE_LABEL[scene]}`;
+    for (const key of ['models', 'modelFallbacks'] as const) {
+      for (const [k, v] of Object.entries((layer[key] as Record<string, unknown> | undefined) ?? {})) add(`sceneDefaults.${scene}.${key}.${k}`, label, v);
+    }
+    const mm = layer.multiModel as { models?: unknown[] } | undefined;
+    for (const v of mm?.models ?? []) add(`sceneDefaults.${scene}.multiModel`, `${label} · 多模型交叉`, v);
+  }
+  return out;
+}
+
+/**
+ * The config without provider `id` and without every reference `providerReferences` finds: the default and
+ * fallback models are unset, stages follow the default model again, the provider's models leave the confidential list
+ * and the cross-check groups (a group left with fewer than 2 models is switched off). Pricing entries stay.
+ */
+export function withoutProvider(cfg: AppConfig, id: string): AppConfig {
+  const hit = (v: unknown) => refOf(v, id) !== null;
+  const { defaultModel, fallbackModel, confidentialModels, ...rest } = cfg;
+  const stageModels = Object.fromEntries(Object.entries(cfg.stageModels ?? {}).filter(([, v]) => !hit(v))) as StageModelsConfig;
+  const confidential = (confidentialModels ?? []).filter((k) => !k.startsWith(`${id}/`));
+  const sceneDefaults: Record<string, Record<string, unknown>> = {};
+  for (const [scene, layer] of Object.entries(cfg.sceneDefaults as Record<string, Record<string, unknown> | undefined>)) {
+    if (!layer) continue;
+    const next: Record<string, unknown> = { ...layer };
+    for (const key of ['models', 'modelFallbacks'] as const) {
+      if (layer[key] && typeof layer[key] === 'object') next[key] = Object.fromEntries(Object.entries(layer[key] as Record<string, unknown>).filter(([, v]) => !hit(v)));
+    }
+    const mm = layer.multiModel as { enabled?: boolean; models?: unknown[] } | undefined;
+    if (mm?.models?.some(hit)) {
+      const models = mm.models.filter((v) => !hit(v));
+      next.multiModel = { ...mm, models, ...(mm.enabled && models.length < 2 ? { enabled: false } : {}) };
+    }
+    sceneDefaults[scene] = next;
+  }
+  return {
+    ...rest,
+    modelProviders: cfg.modelProviders.filter((p) => p.id !== id),
+    ...(defaultModel && !hit(defaultModel) ? { defaultModel } : {}),
+    ...(fallbackModel && !hit(fallbackModel) ? { fallbackModel } : {}),
+    stageModels,
+    ...(confidential.length ? { confidentialModels: confidential } : {}),
+    sceneDefaults: sceneDefaults as AppConfig['sceneDefaults'],
+  };
 }
