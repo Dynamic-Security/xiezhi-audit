@@ -952,7 +952,8 @@ export class AuditRuntime {
       name: 'service_card', kind: 'read', description: P('tool.service_card'),
       parameters: Type.Object({ service: Type.String({ maxLength: 200, description: `One of: ${peers.slice(0, 30).join(', ')}` }) }, { additionalProperties: false }),
       run: (a: { service: string }) => {
-        const name = peers.find((p) => p.toLowerCase() === a.service.toLowerCase());
+        // The session's own service is answered too — gpt-6-luna asked for it in 5 of 19 calls.
+        const name = [repo, ...peers].find((p) => p.toLowerCase() === a.service.toLowerCase());
         if (!name) throw new Error(`unknown service ${a.service}; use one of: ${peers.slice(0, 30).join(', ')}`);
         this.event('tool.called', { tool: 'service_card', service: name }, stepId);
         return { text: wrapUntrusted(nonce, 'knowledge', `card:${name}`, cardText(responsibilityCard(this.store, this.audit.project_id, name, this.indexes.get(name), gateways, { confidential }))) };

@@ -63,7 +63,8 @@ export const useAnalysis = (pid: string) =>
     queryKey: qk.analysis(pid), queryFn: () => api.get<{ analysis: AnalysisDto | null }>(`/projects/${pid}/analysis`),
     refetchInterval: (q) => (q.state.data?.analysis?.status === 'running' ? 1500 : false), refetchIntervalInBackground: true,
   });
-export const useRepos = (pid: string) => useQuery({ queryKey: qk.repos(pid), queryFn: () => api.get<RepoDto[]>(`/projects/${pid}/repos`) });
+// The new-audit page renders before a project is chosen (GET /projects//repos → 404).
+export const useRepos = (pid: string) => useQuery({ queryKey: qk.repos(pid), enabled: !!pid, queryFn: () => api.get<RepoDto[]>(`/projects/${pid}/repos`) });
 export const useAudits = (filters: Record<string, string | undefined>, opts?: Opts<Page<AuditSummaryDto>>) =>
   useQuery({ queryKey: qk.audits(filters), queryFn: () => api.get<Page<AuditSummaryDto>>(`/audits${qs({ ...filters, limit: '200' })}`), ...opts });
 export const useAudit = (aid: string, opts?: Opts<AuditDetailDto>) => useQuery({ queryKey: qk.audit(aid), queryFn: () => api.get<AuditDetailDto>(`/audits/${aid}`), ...opts });

@@ -49,9 +49,25 @@ function offload(ctx: ToolContext, full: string, totalItems: number | undefined,
 
 export interface ReadResult { repo: string; path: string; startLine: number; endLine: number; totalLines: number; truncated: boolean; text: string }
 
+/**
+ * A path given with the wrong repository (gpt-6-luna read orders-api's `app/main.py` as files-gateway's
+ * in 6 of 86 reads) names the repository that has it.
+ */
+function guardInRepo(ctx: ToolContext, v: SnapshotView, path: string): string {
+  try {
+    return v.guard(path);
+  } catch (e) {
+    if (!(e instanceof PathGuardError) || !/not in the snapshot manifest/.test(e.message)) throw e;
+    const has = (o: SnapshotView) => { try { o.guard(path); return true; } catch { return false; } };
+    const other = [...ctx.views.values()].find((o) => o !== v && has(o));
+    if (other) throw new PathGuardError(`path is not in ${v.repo}; it is in ${other.repo} (pass repo "${other.repo}")`);
+    throw e;
+  }
+}
+
 export function toolRead(ctx: ToolContext, args: { repo?: string; path: string; startLine?: number; endLine?: number }): ReadResult {
   const v = view(ctx, args.repo);
-  const rel = v.guard(args.path);
+  const rel = guardInRepo(ctx, v, args.path);
   const lines = v.lines(rel);
   const total = lines.length;
   const start = Math.max(1, Math.floor(args.startLine ?? 1));
