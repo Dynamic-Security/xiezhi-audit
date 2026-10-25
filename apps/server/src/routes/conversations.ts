@@ -3,18 +3,19 @@
 // `GET /messages/{mid}/stream` (resumable by seq). Cards are applied only by the user.
 import type { FastifyInstance } from 'fastify';
 import {
-  AppError, type AuditPlanRequest, type CardDto, type ConversationDto, type Mention, type MentionKind, type MessageDto, type ModelRef, type ProposeHunt,
+  AppError, type AuditPlanRequest, type CardDto, type ConversationDto, type Mention, type MentionKind, type MessageDto, type ModelRef, type ProposeHunt, type ProposeProject,
 } from '@xiezhi/contracts';
 import {
-  auditConversation, createConnector, createConversation, deleteConversation, getCard, getConversation, getMessage, listConversations, listMessages, mentionCandidates, mergeVulnerabilities,
+  auditConversation, createConnector, createConversation, createProject, createThreatModelWithSources, listRepositories, type AddThreatSourceInput, deleteConversation, getCard, getConversation, getMessage, listConversations, listMessages, mentionCandidates, mergeVulnerabilities,
   messageCards, messageCardOffsets, messageEvents, messageToolCalls, resolveMention, revisionCardProgress, applyRevisionSuggestion, splitVulnerability, updateConversation, conversationMentions, mentionedProjects,
-  type CardRow, type ConversationRow, type MessageEvent, type MessageRow, queries as Q,
+  type CardRow, type ConversationRow, type MessageEvent, type MessageRow, messageAttachments, queries as Q,
 } from '@xiezhi/engine';
 import { fromJson, type Store } from '@xiezhi/store';
 import type { AppContext } from '../context.js';
 import { expectedRevision, parseBody } from '../http.js';
 import * as B from '../bodies.js';
 import { openStream } from './events.js';
+import { addFromSource } from './projects.js';
 
 const iso = (ms: number | null) => (ms == null ? null : new Date(ms).toISOString());
 
@@ -44,7 +45,7 @@ export function registerConversationRoutes(app: FastifyInstance, ctx: AppContext
   };
   const messageDto = (m: MessageRow): MessageDto => ({
     id: m.id, conversationId: m.conversation_id, seq: m.seq, role: m.role, content: m.content,
-    mentions: fromJson<Mention[]>(m.refs, []).map((x) => resolveMention(store, x)), status: m.status, finishReason: m.finish_reason, model: m.model, tokens: m.tokens,
+    mentions: fromJson<Mention[]>(m.refs, []).map((x) => resolveMention(store, x)), attachments: messageAttachments(m.attachments), status: m.status, finishReason: m.finish_reason, model: m.model, tokens: m.tokens,
     toolCalls: m.role === 'assistant' ? messageToolCalls(store, m.id) : [],
     cards: m.role === 'assistant' ? (() => { const at = messageCardOffsets(store, m.id); return messageCards(store, m.id).map((c) => ({ ...cardDto(store, c), textOffset: at.get(c.id) ?? null })); })() : [],
     error: m.error, clientMessageId: m.client_message_id, createdAt: iso(m.created_at)!,
@@ -78,13 +79,23 @@ export function registerConversationRoutes(app: FastifyInstance, ctx: AppContext
     const r = listMessages(store, req.params.cid, req.query.before ? Number(req.query.before) : undefined, Math.min(200, Math.max(1, Number(req.query.limit ?? 50) || 50)));
     return { items: r.items.map(messageDto), nextCursor: r.nextCursor == null ? null : String(r.nextCursor) };
   });
-  app.post<{ Params: { cid: string } }>('/api/v1/conversations/:cid/messages', async (req, reply) => {
+  // Files travel base64 in the body: up to 5 images of 5 MB and 1 MB of text.
+  app.post<{ Params: { cid: string } }>('/api/v1/conversations/:cid/messages', { bodyLimit: 40 * 1024 * 1024 }, async (req, reply) => {
     const b = parseBody(B.PostMessagesBody, req.body);
-    const r = svc().postMessage(req.params.cid, { clientMessageId: b.clientMessageId, content: b.content, ...(b.mentions ? { mentions: b.mentions as Mention[] } : {}) });
+    const r = svc().postMessage(req.params.cid, { clientMessageId: b.clientMessageId, content: b.content, ...(b.mentions ? { mentions: b.mentions as Mention[] } : {}), ...(b.attachments ? { attachments: b.attachments } : {}) });
     reply.code(202);
     return r;
   });
   app.get<{ Params: { mid: string } }>('/api/v1/messages/:mid', async (req) => messageDto(getMessage(store, req.params.mid)));
+  /** A file of a message, only by the message that has it; served as an attachment except images, never sniffed. */
+  app.get<{ Params: { mid: string; id: string } }>('/api/v1/messages/:mid/attachments/:id', async (req, reply) => {
+    const a = messageAttachments(getMessage(store, req.params.mid).attachments).find((x) => x.id === req.params.id);
+    if (!a) throw new AppError('COMMON_NOT_FOUND', 'attachment not found');
+    reply.header('Content-Type', a.kind === 'image' ? a.mimeType : 'text/plain; charset=utf-8').header('X-Content-Type-Options', 'nosniff')
+      .header('Cache-Control', 'private, max-age=31536000, immutable')
+      .header('Content-Disposition', `${a.kind === 'image' ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(a.name.split('/').pop() ?? a.name)}`);
+    return reply.send(store.artifacts.get(a.id));
+  });
   app.post<{ Params: { mid: string } }>('/api/v1/messages/:mid/stop', async (req, reply) => {
     svc().stop(req.params.mid);
     return reply.code(204).send();
@@ -173,7 +184,7 @@ export function registerConversationRoutes(app: FastifyInstance, ctx: AppContext
         const id = ctx.engine.createAudit({
           projectId: q.projectId, origin: 'conversation', conversationId: cid, ...(q.repository ? { repository: q.repository } : {}), ...(q.ref ? { ref: q.ref } : {}),
           ...(q.mode ? { mode: q.mode } : {}), ...(q.related ? { related: q.related } : {}), ...(q.repositories ? { repositories: q.repositories } : {}), ...(q.refs ? { refs: q.refs } : {}),
-          ...(q.scene ? { scene: q.scene } : {}), ...(q.baseRef ? { baseRef: q.baseRef } : {}), ...(q.baseAuditId ? { baseAuditId: q.baseAuditId } : {}),
+          ...(q.scene ? { scene: q.scene } : {}), ...(q.baseRef ? { baseRef: q.baseRef } : {}), ...(q.baseRefs ? { baseRefs: q.baseRefs } : {}), ...(q.baseAuditId ? { baseAuditId: q.baseAuditId } : {}),
           ...(q.title ? { title: q.title } : {}), ...(q.strategyOverride ? { strategyOverride: q.strategyOverride } : {}),
           autoStart: true, // the card is the one confirmation
         });
@@ -200,6 +211,66 @@ export function registerConversationRoutes(app: FastifyInstance, ctx: AppContext
         result = { connectorId: row.id, secrets: d.secrets ?? [] };
         break;
       }
+      // Project, threat model, vulnerability drafts, project analysis.
+      case 'propose_project': {
+        // Like the project form: the project is created, then each repository is added on its own (one bad path does not undo the rest).
+        const p = createProject(store, String(d.name));
+        const repos: { ok: boolean; source: string; name?: string; error?: string }[] = [];
+        for (const r of (d.repos ?? []) as ProposeProject['repos']) {
+          try {
+            repos.push({ ok: true, source: r.path ?? r.git ?? '', name: (await addFromSource(ctx, p.id, r)).name });
+          } catch (e) {
+            if (!(e instanceof AppError)) throw e;
+            repos.push({ ok: false, source: r.path ?? r.git ?? '', error: e.hint ?? e.code });
+          }
+        }
+        result = { projectId: p.id, repos };
+        if (!repos.some((r) => r.ok)) break;
+        if (d.analyze) result.analysisId = ctx.engine.jobs.startAnalysis(p.id);
+        const audit = d.audit as ProposeProject['audit'] | null;
+        if (audit) {
+          try {
+            const id = ctx.engine.createAudit({
+              projectId: p.id, origin: 'conversation', conversationId: cid, mode: listRepositories(store, p.id).filter((r) => r.is_auditable).length > 1 ? 'multi' : 'single',
+              ...(audit.title ? { title: audit.title } : {}), ...(audit.strategyOverride ? { strategyOverride: audit.strategyOverride } : {}), autoStart: true,
+            });
+            ctx.scheduler.plan(id);
+            svc().appendCard(c.message_id, 'audit_status', { title: audit.title ?? `${p.name} · 全量审计`, auditId: id, scene: 'full' }, { kind: 'audit', id });
+            result.auditId = id;
+          } catch (e) {
+            // E.g. no repository with audit-language sources: the project stays, the card says why no audit started.
+            if (!(e instanceof AppError)) throw e;
+            result.auditError = e.hint ?? e.code;
+          }
+        }
+        break;
+      }
+      case 'propose_threat_model': {
+        const tm = createThreatModelWithSources(store, String(d.projectId), { title: String(d.title), sources: d.sources as AddThreatSourceInput[] });
+        result = { threatModelId: tm.id, projectId: d.projectId, generating: false };
+        if (d.generate !== false) {
+          try {
+            ctx.engine.jobs.startThreatModel(tm.id);
+            result.generating = true;
+          } catch (e) {
+            // A source with suspected injected instructions needs a review on the threat model page first.
+            if (!(e instanceof AppError)) throw e;
+            result.generateError = e.hint ?? e.code;
+          }
+        }
+        break;
+      }
+      case 'propose_vuln_drafts': {
+        const vid = String(d.vulnId);
+        const jobs = ctx.engine.jobs;
+        const drafts: Record<string, string> = {};
+        for (const k of d.kinds as string[]) drafts[k] = (k === 'fix' ? jobs.startFixDraft(vid) : k === 'case' ? jobs.startCaseDraft(vid) : jobs.startRuleDraft(vid)).id;
+        result = { vulnId: vid, drafts };
+        break;
+      }
+      case 'propose_analysis':
+        result = { projectId: d.projectId, analysisId: ctx.engine.jobs.startAnalysis(String(d.projectId)) };
+        break;
       default:
         throw new AppError('CARD_NOT_PENDING', `${c.kind} cards have no action`);
     }

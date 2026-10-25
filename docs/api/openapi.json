@@ -158,12 +158,12 @@
                     "stage": {
                       "enum": [
                         "prepare",
+                        "hypotheses",
                         "triage",
                         "hunt",
                         "gap",
-                        "hypotheses",
-                        "explore",
                         "merge",
+                        "explore",
                         "review",
                         "verify"
                       ]
@@ -250,6 +250,12 @@
             ],
             "type": "object"
           },
+          "filteredModels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "findingCount": {
             "type": "integer"
           },
@@ -274,6 +280,25 @@
               "single",
               "multi"
             ]
+          },
+          "modelSwitches": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "$ref": "#/components/schemas/ModelRef"
+                }
+              },
+              "required": [
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "openQuestions": {
             "type": "integer"
@@ -464,7 +489,9 @@
           "gate",
           "lastEventSeq",
           "reverify",
-          "exports"
+          "exports",
+          "filteredModels",
+          "modelSwitches"
         ],
         "type": "object"
       },
@@ -662,16 +689,12 @@
                   "resolved",
                   "heuristic"
                 ]
-              },
-              "variantSearch": {
-                "type": "boolean"
               }
             },
             "required": [
               "maxDepth",
               "minConfidence",
-              "maxChangedRatio",
-              "variantSearch"
+              "maxChangedRatio"
             ],
             "type": "object"
           },
@@ -885,6 +908,22 @@
                 "maxItems": 4,
                 "type": "array"
               },
+              "onFiltered": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "continue"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "enum": [
+                      "pause"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
               "stages": {
                 "additionalProperties": false,
                 "properties": {
@@ -1065,12 +1104,12 @@
                     "stage": {
                       "enum": [
                         "prepare",
+                        "hypotheses",
                         "triage",
                         "hunt",
                         "gap",
-                        "hypotheses",
-                        "explore",
                         "merge",
+                        "explore",
                         "review",
                         "verify"
                       ]
@@ -2673,6 +2712,36 @@
           },
           "revision": {
             "type": "string"
+          },
+          "tools": {
+            "additionalProperties": false,
+            "properties": {
+              "gitPath": {
+                "type": "string"
+              },
+              "goPath": {
+                "type": "string"
+              },
+              "goplsPath": {
+                "type": "string"
+              },
+              "jdtlsPath": {
+                "type": "string"
+              },
+              "nodePath": {
+                "type": "string"
+              },
+              "pyrightPath": {
+                "type": "string"
+              },
+              "rgPath": {
+                "type": "string"
+              },
+              "tsLspPath": {
+                "type": "string"
+              }
+            },
+            "type": "object"
           }
         },
         "required": [
@@ -2681,6 +2750,7 @@
           "export",
           "log",
           "pricing",
+          "tools",
           "revision"
         ],
         "type": "object"
@@ -4355,6 +4425,12 @@
                 "id": {
                   "type": "string"
                 },
+                "options": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
                 "projectName": {
                   "type": "string"
                 },
@@ -4387,6 +4463,7 @@
                 "answer",
                 "saveAsSkill",
                 "asFact",
+                "options",
                 "createdAt",
                 "answeredAt",
                 "auditTitle",
@@ -4511,6 +4588,130 @@
               "heuristic",
               "full_scan"
             ]
+          },
+          "repos": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "affectedEntrypoints": {
+                  "type": "integer"
+                },
+                "affectedSinks": {
+                  "type": "integer"
+                },
+                "base": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "auditId": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "commit": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "ref": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "rootHash": {
+                          "type": "string"
+                        },
+                        "worktree": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "auditId",
+                        "ref",
+                        "commit",
+                        "rootHash",
+                        "worktree"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "changedFiles": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "added": {
+                      "type": "integer"
+                    },
+                    "deleted": {
+                      "type": "integer"
+                    },
+                    "modified": {
+                      "type": "integer"
+                    },
+                    "renamed": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "added",
+                    "modified",
+                    "deleted",
+                    "renamed"
+                  ],
+                  "type": "object"
+                },
+                "changedSymbols": {
+                  "type": "integer"
+                },
+                "fallbackReasons": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "mode": {
+                  "enum": [
+                    "precise",
+                    "heuristic",
+                    "full_scan"
+                  ]
+                },
+                "repo": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo",
+                "base",
+                "mode",
+                "fallbackReasons",
+                "changedFiles",
+                "changedSymbols",
+                "affectedEntrypoints",
+                "affectedSinks"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -5376,11 +5577,17 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "confidential": {
+                  "type": "boolean"
+                },
                 "contextWindow": {
                   "type": "integer"
                 },
                 "id": {
                   "type": "string"
+                },
+                "images": {
+                  "type": "boolean"
                 },
                 "maxTokens": {
                   "type": "integer"
@@ -5398,6 +5605,29 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "references": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "setting": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "setting",
+                "label",
+                "model"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -5406,7 +5636,8 @@
           "baseUrl",
           "apiKey",
           "models",
-          "lastTest"
+          "lastTest",
+          "references"
         ],
         "type": "object"
       },
@@ -5450,6 +5681,12 @@
           "id": {
             "type": "string"
           },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "saveAsSkill": {
             "enum": [
               "none",
@@ -5479,6 +5716,7 @@
           "answer",
           "saveAsSkill",
           "asFact",
+          "options",
           "createdAt",
           "answeredAt"
         ],
@@ -5947,6 +6185,12 @@
             },
             "type": "array"
           },
+          "refs": {
+            "items": {
+              "$ref": "#/components/schemas/RefDto"
+            },
+            "type": "array"
+          },
           "remote": {
             "anyOf": [
               {
@@ -6027,6 +6271,7 @@
           "auditable",
           "suggestedName",
           "problems",
+          "refs",
           "remote",
           "archive"
         ],
@@ -7261,6 +7506,9 @@
           "key": {
             "type": "string"
           },
+          "tokensCached": {
+            "type": "integer"
+          },
           "tokensIn": {
             "type": "integer"
           },
@@ -7275,6 +7523,7 @@
           "key",
           "tokensIn",
           "tokensOut",
+          "tokensCached",
           "costMicros",
           "unknownCostCalls",
           "calls"
@@ -8583,6 +8832,15 @@
                     "minLength": 1,
                     "type": "string"
                   },
+                  "baseRefs": {
+                    "additionalProperties": {
+                      "maxLength": 250,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "description": "多仓库增量审计：按仓库（名称或 id）指定对比基线；省略的仓库用其上次审计的版本，没有则按全量审计",
+                    "type": "object"
+                  },
                   "mode": {
                     "enum": [
                       "single",
@@ -8617,7 +8875,7 @@
                     "type": "array"
                   },
                   "repositories": {
-                    "description": "多仓库合并审计的目标仓库；省略 = 全部可审计仓库",
+                    "description": "多仓库合并审计（全量或增量）的目标仓库；省略 = 全部可审计仓库",
                     "items": {
                       "maxLength": 120,
                       "minLength": 1,
@@ -9225,7 +9483,7 @@
             "description": "Default Response"
           }
         },
-        "summary": "AI 报告的默认模型（报告阶段或跟随深入审计）、备用模型与 token 预估",
+        "summary": "AI 报告的默认模型（报告阶段或跟随领域审计）、备用模型与 token 预估",
         "tags": [
           "exports"
         ]
@@ -9263,19 +9521,19 @@
                   "stage": {
                     "enum": [
                       "prepare",
+                      "hypotheses",
                       "triage",
                       "hunt",
                       "gap",
-                      "hypotheses",
-                      "explore",
                       "merge",
+                      "explore",
                       "review",
                       "verify"
                     ]
                   },
                   "tokens": {
-                    "maximum": 100000000,
-                    "minimum": 1,
+                    "maximum": 10000000000,
+                    "minimum": 1000000,
                     "type": "integer"
                   }
                 },
@@ -11426,6 +11684,9 @@
                                         "from": {
                                           "type": "string"
                                         },
+                                        "later": {
+                                          "type": "boolean"
+                                        },
                                         "manual": {
                                           "type": "boolean"
                                         },
@@ -11437,7 +11698,8 @@
                                         "from",
                                         "reason",
                                         "degraded",
-                                        "manual"
+                                        "manual",
+                                        "later"
                                       ],
                                       "type": "object"
                                     },
@@ -13145,6 +13407,22 @@
                   },
                   "switchModel": {
                     "$ref": "#/components/schemas/ModelRef"
+                  },
+                  "switchScope": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "filtered"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "enum": [
+                          "later"
+                        ],
+                        "type": "string"
+                      }
+                    ]
                   }
                 },
                 "type": "object"
@@ -13185,7 +13463,7 @@
             "description": "Default Response"
           }
         },
-        "summary": "继续（已暂停、已中断）；restartFiltered 时被内容过滤拦截的步骤从头开始；switchModel 时这些步骤改用所选模型重试",
+        "summary": "继续（已暂停、已中断）；restartFiltered 时被内容过滤拦截的步骤从头开始；switchModel 时这些步骤改用所选模型重试；switchScope 为 later 时之后用到被拦截模型的步骤也改用所选模型",
         "tags": [
           "audits"
         ]
@@ -13239,6 +13517,187 @@
           }
         },
         "summary": "步骤列表",
+        "tags": [
+          "audits"
+        ]
+      }
+    },
+    "/api/v1/audits/{aid}/steps/{sid}/filtered": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "aid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "attempt": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lineage": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "model": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reply": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "errorMessage": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "model": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "stopReason": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "text": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "text",
+                            "model",
+                            "stopReason",
+                            "errorMessage"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "request": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "chars": {
+                            "type": "integer"
+                          },
+                          "role": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "role",
+                          "text",
+                          "chars"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "stepId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "stepId",
+                    "lineage",
+                    "model",
+                    "attempt",
+                    "error",
+                    "reply",
+                    "request"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "被内容过滤拦截的步骤：模型、服务返回的内容与拦截前发送的最后几条消息",
         "tags": [
           "audits"
         ]
@@ -20129,6 +20588,40 @@
                       "items": {
                         "additionalProperties": false,
                         "properties": {
+                          "attachments": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "image",
+                                    "text"
+                                  ]
+                                },
+                                "mimeType": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "size": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "kind",
+                                "name",
+                                "mimeType",
+                                "size"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
                           "cards": {
                             "items": {
                               "additionalProperties": false,
@@ -20436,6 +20929,7 @@
                           "role",
                           "content",
                           "mentions",
+                          "attachments",
                           "status",
                           "finishReason",
                           "model",
@@ -20514,13 +21008,42 @@
               "schema": {
                 "additionalProperties": false,
                 "properties": {
+                  "attachments": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "data": {
+                          "maxLength": 6990508,
+                          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+                          "type": "string"
+                        },
+                        "mimeType": {
+                          "maxLength": 200,
+                          "type": "string"
+                        },
+                        "name": {
+                          "maxLength": 500,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "mimeType",
+                        "data"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                  },
                   "clientMessageId": {
                     "pattern": "^[A-Za-z0-9_-]{8,64}$",
                     "type": "string"
                   },
                   "content": {
                     "maxLength": 20000,
-                    "minLength": 1,
+                    "minLength": 0,
                     "type": "string"
                   },
                   "mentions": {
@@ -28594,6 +29117,40 @@
                 "schema": {
                   "additionalProperties": false,
                   "properties": {
+                    "attachments": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "enum": [
+                              "image",
+                              "text"
+                            ]
+                          },
+                          "mimeType": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "name",
+                          "mimeType",
+                          "size"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
                     "cards": {
                       "items": {
                         "additionalProperties": false,
@@ -28901,6 +29458,7 @@
                     "role",
                     "content",
                     "mentions",
+                    "attachments",
                     "status",
                     "finishReason",
                     "model",
@@ -28939,6 +29497,94 @@
           }
         },
         "summary": "单条消息（含工具调用与卡片）",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/v1/messages/{mid}/attachments/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "4XX": {
+            "content": {
+              "image/gif": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "5XX": {
+            "content": {
+              "image/gif": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "消息附件（id 为 sha256）：图片按原类型内联显示，文本文件作为附件下载",
         "tags": [
           "conversations"
         ]
@@ -37895,6 +38541,116 @@
                   },
                   "revision": {
                     "type": "string"
+                  },
+                  "tools": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "gitPath": {
+                        "anyOf": [
+                          {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "pattern": "^/",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "goPath": {
+                        "anyOf": [
+                          {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "pattern": "^/",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "goplsPath": {
+                        "anyOf": [
+                          {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "pattern": "^/",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "jdtlsPath": {
+                        "anyOf": [
+                          {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "pattern": "^/",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "nodePath": {
+                        "anyOf": [
+                          {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "pattern": "^/",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "pyrightPath": {
+                        "anyOf": [
+                          {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "pattern": "^/",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "rgPath": {
+                        "anyOf": [
+                          {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "pattern": "^/",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "tsLspPath": {
+                        "anyOf": [
+                          {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "pattern": "^/",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "required": [
@@ -38176,6 +38932,9 @@
                     "items": {
                       "additionalProperties": false,
                       "properties": {
+                        "confidential": {
+                          "type": "boolean"
+                        },
                         "contextWindow": {
                           "minimum": 1024,
                           "type": "integer"
@@ -38184,6 +38943,9 @@
                           "maxLength": 200,
                           "minLength": 1,
                           "type": "string"
+                        },
+                        "images": {
+                          "type": "boolean"
                         },
                         "maxTokens": {
                           "minimum": 256,
@@ -38526,6 +39288,18 @@
       "delete": {
         "parameters": [
           {
+            "description": "同时清除引用该服务的模型配置（默认模型、备用模型、各阶段模型等）",
+            "in": "query",
+            "name": "clearReferences",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1"
+              ],
+              "type": "string"
+            }
+          },
+          {
             "in": "path",
             "name": "id",
             "required": true,
@@ -38535,8 +39309,44 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "No content"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "cleared": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "label": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "setting": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "setting",
+                          "label",
+                          "model"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "cleared"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
           },
           "4XX": {
             "content": {
@@ -38559,7 +39369,7 @@
             "description": "Default Response"
           }
         },
-        "summary": "删除模型服务",
+        "summary": "删除模型服务；仍被模型配置引用时 409（PROVIDER_IN_USE，details.references 列出引用），带 clearReferences=1 时一并清除这些引用",
         "tags": [
           "settings"
         ]
@@ -38601,6 +39411,9 @@
                     "items": {
                       "additionalProperties": false,
                       "properties": {
+                        "confidential": {
+                          "type": "boolean"
+                        },
                         "contextWindow": {
                           "minimum": 1024,
                           "type": "integer"
@@ -38609,6 +39422,9 @@
                           "maxLength": 200,
                           "minLength": 1,
                           "type": "string"
+                        },
+                        "images": {
+                          "type": "boolean"
                         },
                         "maxTokens": {
                           "minimum": 256,
@@ -38704,11 +39520,17 @@
                       "items": {
                         "additionalProperties": false,
                         "properties": {
+                          "confidential": {
+                            "type": "boolean"
+                          },
                           "contextWindow": {
                             "type": "integer"
                           },
                           "id": {
                             "type": "string"
+                          },
+                          "images": {
+                            "type": "boolean"
                           },
                           "maxTokens": {
                             "type": "integer"
@@ -38726,6 +39548,29 @@
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "references": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "label": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "setting": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "setting",
+                          "label",
+                          "model"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
                     }
                   },
                   "required": [
@@ -38735,6 +39580,7 @@
                     "apiKey",
                     "models",
                     "lastTest",
+                    "references",
                     "keyCleared"
                   ],
                   "type": "object"

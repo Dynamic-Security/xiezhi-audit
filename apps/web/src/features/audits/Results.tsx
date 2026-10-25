@@ -7,7 +7,7 @@ import type { AuditDetailDto, ExportDto, KnowledgeUsageDto, ModelRef } from '@xi
 import { api, newIdempotencyKey } from '../../shared/api/client';
 import { useAiReportDefaults, useCoverage, useCoverageItems, useExport, useExportPreview, useExports, useFindings, useKnowledge, useProviders, useUsage } from '../../shared/api/queries';
 import { Markdown } from '../../shared/markdown/Markdown';
-import { CONFIDENCE, LIFECYCLE, PARTIAL_REASON, REVERIFY_VERDICT, STEP_KIND, categoryLabel, fmt, gateCheckText } from '../../shared/format/messages';
+import { CONFIDENCE, LIFECYCLE, PARTIAL_REASON, REVERIFY_VERDICT, STEP_KIND, categoryLabel, fmt, gateCheckText, reasonsLabel } from '../../shared/format/messages';
 import {
   AuditStatusBadge, Badge, Button, ConfirmBadge, Dialog, EmptyState, Field, Icon, LifecycleBadge, Loading, Progress, Segmented, SeverityBadge, cx, ui, useToast,
 } from '../../shared/ui';
@@ -43,7 +43,7 @@ function ReportModelBox({ aid, snippets, includePending, picked, value, onChange
           <b className={ui.mono}>{refKey(cur)}</b>
           <span className={ui.faint}> · 思考强度 {THINK[cur.thinking ?? ''] ?? '默认'}</span>
           <div className={ui.faint} style={{ fontSize: 12 }}>
-            {value ? '仅本次导出更换' : d.data.source === 'report_stage' ? '来自本次审计的“报告”阶段（默认取自 设置 › 模型）' : '报告阶段未单独设置，跟随深入审计的模型'}
+            {value ? '仅本次导出更换' : d.data.source === 'report_stage' ? '来自本次审计的“报告”阶段（默认取自 设置 › 模型）' : '报告阶段未单独设置，跟随领域审计的模型'}
             {' · '}{!d.data.fallback ? '未设置备用模型' : refKey(d.data.fallback) === refKey(cur) ? '备用模型与当前模型相同，不切换' : `备用 ${refKey(d.data.fallback)}`}
           </div>
         </div>
@@ -61,7 +61,7 @@ function ReportModelBox({ aid, snippets, includePending, picked, value, onChange
         </div>
       )}
       <div className={ui.faint} style={{ fontSize: 12, marginTop: 6 }}>
-        预计约 {fmt.compact(d.data.estimate.tokens)} tokens（{d.data.estimate.conclusions} 条结论{picked ? '，按全部发现估算' : ''}；校验不一致时最多再写一次）
+        预计约 {fmt.tokens(d.data.estimate.tokens)} tokens（{d.data.estimate.conclusions} 条结论{picked ? '，按全部发现估算' : ''}；校验不一致时最多再写一次）
       </div>
     </div>
   );
@@ -77,7 +77,7 @@ function AiResult({ x, onRegenerate }: { x: ExportDto; onRegenerate: () => void 
       {v && (v.ok
         ? <div className={ui.banner} style={{ background: 'var(--ok-soft, var(--bg-hover))', color: 'var(--ok)' }}><Icon name="checkCircle" />校验通过：结论的编号、严重度与确认状态与审计记录一致{v.rounds > 1 ? `（第一次有 ${v.firstIssues.length} 处不一致，已修正）` : ''}</div>
         : <div className={ui.banner} style={{ background: 'var(--warn-soft)', color: 'var(--warn)', alignItems: 'flex-start' }}><Icon name="alert" /><div>校验未通过（已让模型修正一次）：报告顶部列出了不一致之处，末尾附程序生成的事实清单。<ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{v.issues.slice(0, 5).map((i) => <li key={i}>{i}</li>)}</ul>{v.issues.length > 5 && `…共 ${v.issues.length} 处`}</div></div>)}
-      <div className={ui.faint} style={{ fontSize: 12 }}>{x.model}{v?.fallbackFrom ? `（${v.fallbackFrom} 不可用，已改用备用模型）` : ''} · {fmt.compact(x.tokens)} tokens</div>
+      <div className={ui.faint} style={{ fontSize: 12 }}>{x.model}{v?.fallbackFrom ? `（${v.fallbackFrom} 不可用，已改用备用模型）` : ''} · {fmt.tokens(x.tokens)} tokens</div>
       <div className={cx(ui.row, ui.wrap)}>
         <a className={cx(ui.btn, ui.primary)} href={`/api/v1/exports/${x.id}/download`} download={x.fileName}><Icon name="download" />下载 {x.format === 'md' ? 'Markdown' : 'HTML'}</a>
         <Button icon="eye" onClick={() => setPreview(!preview)}>{preview ? '收起预览' : '预览'}</Button>
@@ -180,7 +180,7 @@ export function ExportDialog({ audit, open, onClose }: { audit: AuditDetailDto; 
       {format === 'sarif' && <div className={ui.banner} style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}><Icon name="alert" />SARIF 保留被审代码原文，文件可能包含代码中的明文密钥。</div>}
       {cur?.status === 'running' && (
         <div className={ui.banner} role="status" style={{ background: 'var(--accent-soft)', color: 'var(--accent-text)' }}>
-          <span className={ui.spinner} />{PHASE[cur.progress ?? 'generating']}…{cur.tokens ? ` 已用 ${fmt.compact(cur.tokens)} tokens` : ''}
+          <span className={ui.spinner} />{PHASE[cur.progress ?? 'generating']}…{cur.tokens ? ` 已用 ${fmt.tokens(cur.tokens)} tokens` : ''}
         </div>
       )}
       {cur?.status === 'failed' && cur.mode === 'ai' && <div className={ui.banner} style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}><Icon name="alert" />AI 生成失败：{cur.error ?? '未知原因'}</div>}
@@ -210,6 +210,10 @@ export function ResultsView({ audit, onVuln }: { audit: AuditDetailDto; onVuln: 
   const gate = audit.gate;
   const main = (f.data ?? []).filter((x) => x.state === 'canonical');
   const insufficient = (f.data ?? []).filter((x) => x.state === 'insufficient');
+  // Findings the hunt submitted, not merged (yet): on a large repository the merge comes an hour or more after the first
+  // one, and “暂无发现” meanwhile contradicted the trajectory and the domain plan. A paused or cancelled
+  // audit keeps them unmerged.
+  const pending = (f.data ?? []).filter((x) => x.state === 'submitted');
   const unknownCalls = (usage.data ?? []).reduce((n, r) => n + r.unknownCostCalls, 0);
   return (
     <div className={ui.stack} style={{ gap: 20 }}>
@@ -220,10 +224,11 @@ export function ResultsView({ audit, onVuln }: { audit: AuditDetailDto; onVuln: 
               <Badge tone={gate.status === 'completed' ? 'ok' : gate.status === 'partial' ? 'warn' : 'danger'}>{gate.status === 'completed' ? '完整' : gate.status === 'partial' ? '部分完成' : '失败'}</Badge></div>
             {gate.coverage && <span className={ui.faint} style={{ fontSize: 12 }}>入口 {gate.coverage.entry.reviewed}/{gate.coverage.entry.total} · 危险点 {gate.coverage.sink.reviewed}/{gate.coverage.sink.total}</span>}
           </div>
-          {gate.partialReasons.length > 0 && <div className={cx(ui.row, ui.wrap)} style={{ marginTop: 10 }}>{gate.partialReasons.map((r) => <Badge key={r} tone="warn">{PARTIAL_REASON[r] ?? r}</Badge>)}</div>}
+          {gate.partialReasons.length > 0 && <div className={cx(ui.row, ui.wrap)} style={{ marginTop: 10 }}><span className={ui.faint} style={{ fontSize: 12 }}>{reasonsLabel(gate.status)}：</span>{gate.partialReasons.map((r) => <Badge key={r} tone="warn">{PARTIAL_REASON[r] ?? r}</Badge>)}</div>}
           {gate.notices?.length ? <ul className={ui.faint} style={{ fontSize: 12, marginTop: 8, paddingLeft: 18 }}>{gate.notices.map((n) => <li key={n}>提示：{n}</li>)}</ul> : null}
           <div className={A.checks}>{gate.checks.map((c) => <div key={c.name} className={ui.row}><span style={{ color: c.ok ? 'var(--ok)' : 'var(--warn)' }}><Icon name={c.ok ? 'check' : 'alert'} size={14} /></span><span className={ui.muted} style={{ fontSize: 13 }}>{gateCheckText(c)}</span></div>)}</div>
           {gate.status !== 'completed' && <p className={ui.faint} style={{ fontSize: 12, marginTop: 8 }}>未完整结束的审计，结论不能视为“完整审计”或“代码安全”。</p>}
+          {gate.status === 'completed' && gate.partialReasons.length > 0 && <p className={ui.faint} style={{ fontSize: 12, marginTop: 8 }}>主线已跑通，过程问题不影响完成。在“执行轨迹”的状态栏点击带 ! 的环节可定位失败或跳过的步骤；需要时在“覆盖”页补审未覆盖项、追加执行，或重新审计。</p>}
         </div>
       )}
       {audit.reverify && (
@@ -249,7 +254,7 @@ export function ResultsView({ audit, onVuln }: { audit: AuditDetailDto; onVuln: 
       {!audit.reverify && <div>
         <div className={ui.spread} style={{ marginBottom: 10 }}><b>本次发现（{main.length}）</b></div>
         {f.isLoading ? <Loading /> : main.length === 0 ? (
-          <div className={ui.card}><EmptyState icon="shield" title={TERMINALISH.includes(audit.status) ? '没有正式发现' : '暂无发现'}>{TERMINALISH.includes(audit.status) ? '“没有发现”不等于“没有漏洞”，请结合覆盖对照判断。' : '分析进行中，发现会实时出现在这里。'}</EmptyState></div>
+          <div className={ui.card}><EmptyState icon="shield" title={TERMINALISH.includes(audit.status) ? '没有正式发现' : pending.length ? '还没有归并后的正式发现' : '暂无发现'}>{TERMINALISH.includes(audit.status) ? '“没有发现”不等于“没有漏洞”，请结合覆盖对照判断。' : pending.length ? `追查已提交 ${pending.length} 条，列在下方；归并时去重、复核后成为正式发现。` : '分析进行中，发现会实时出现在这里。'}</EmptyState></div>
         ) : (
           <div className={ui.card} style={{ overflow: 'auto' }}>
             <table className={ui.table}>
@@ -268,6 +273,12 @@ export function ResultsView({ audit, onVuln }: { audit: AuditDetailDto; onVuln: 
             </table>
           </div>
         )}
+        {pending.length > 0 && (
+          <div style={{ marginTop: 12 }} data-testid="pending-findings">
+            <div className={ui.faint} style={{ fontSize: 12, marginBottom: 4 }}>追查中提交、未归并（{pending.length}）：归并会合并重复项，复核可能改判；以正式发现为准</div>
+            {pending.map((x) => <div key={x.id} className={ui.row} style={{ padding: '6px 4px', fontSize: 13 }}><SeverityBadge severity={x.severity} /><span className={ui.grow}>{x.title}</span><span className={cx(ui.mono, ui.faint)}>{fmt.loc(x.location)}</span></div>)}
+          </div>
+        )}
         {insufficient.length > 0 && (
           <div style={{ marginTop: 12 }}>
             <button className={A.more} onClick={() => setShowIns(!showIns)}><Icon name={showIns ? 'chevronDown' : 'chevronRight'} />证据不足（{insufficient.length}，不计入正式结论）</button>
@@ -279,8 +290,9 @@ export function ResultsView({ audit, onVuln }: { audit: AuditDetailDto; onVuln: 
         <b>用量</b>
         <div className={ui.card} style={{ marginTop: 10, overflow: 'auto' }}>
           <table className={ui.table}>
-            <thead><tr><th>环节</th><th>次数</th><th>输入</th><th>输出</th><th>成本</th></tr></thead>
-            <tbody>{(usage.data ?? []).map((r) => <tr key={r.key}><td>{STEP_KIND[r.key] ?? r.key}</td><td>{r.calls}</td><td>{fmt.n(r.tokensIn)}</td><td>{fmt.n(r.tokensOut)}</td><td>{fmt.cost(r.unknownCostCalls ? null : r.costMicros)}</td></tr>)}</tbody>
+            <thead><tr><th>环节</th><th>次数</th><th>输入</th><th title="命中提示缓存的输入：不在“输入”里，计入预算">缓存输入</th><th>输出</th><th>合计</th><th>成本</th></tr></thead>
+            {/* The rows summed to 530万 under a header of 4703万 — cached input (90%) was not shown. */}
+            <tbody>{(usage.data ?? []).map((r) => <tr key={r.key}><td>{STEP_KIND[r.key] ?? r.key}</td><td>{r.calls}</td><td>{fmt.tokens(r.tokensIn)}</td><td>{fmt.tokens(r.tokensCached)}</td><td>{fmt.tokens(r.tokensOut)}</td><td>{fmt.tokens(r.tokensIn + r.tokensCached + r.tokensOut)}</td><td>{fmt.cost(r.unknownCostCalls ? null : r.costMicros)}</td></tr>)}</tbody>
           </table>
         </div>
         {unknownCalls > 0 && <p className={ui.faint} style={{ fontSize: 12, marginTop: 6 }}>有 {unknownCalls} 个步骤的模型未配置价格，成本记为“未知”（可在 设置 › 通用 › 价格表 中配置）。</p>}
@@ -302,14 +314,14 @@ function KnowledgeUsage({ aid }: { aid: string }) {
     <div>
       <b>本次用到的知识</b>
       <p className={ui.faint} style={{ fontSize: 12, margin: '4px 0 0' }}>
-        索引中出现 {q.data.items.length} 条，读取正文或子文件 {loaded.length} 条；知识占 {fmt.n(q.data.knowledgeTokens)} tokens{q.data.totalTokens ? `（本次共 ${fmt.n(q.data.totalTokens)}）` : ''}
+        索引中出现 {q.data.items.length} 条，读取正文或子文件 {loaded.length} 条；知识占 {fmt.tokens(q.data.knowledgeTokens)} tokens{q.data.totalTokens ? `（本次共 ${fmt.tokens(q.data.totalTokens)}）` : ''}
         {q.data.citedShare !== null ? `；被结论引用的比例 ${Math.round(q.data.citedShare * 100)}%` : ''}。
       </p>
       {loaded.length > 0 && (
         <div className={ui.card} style={{ marginTop: 10, overflow: 'auto' }}>
           <table className={ui.table}>
             <thead><tr><th>skill</th><th>层</th><th>加载</th><th>次数</th><th>步骤</th><th>tokens</th><th>被结论引用</th></tr></thead>
-            <tbody>{loaded.map((k) => <tr key={`${k.layer}:${k.name}`}><td className={ui.mono}>{k.name}</td><td>{k.layer === 'project' ? '项目' : '全局'}</td><td>{LEVEL[k.maxLevel] ?? k.maxLevel}</td><td>{k.reads}</td><td>{k.steps}</td><td>{fmt.n(k.tokens)}</td><td>{k.citedBy}</td></tr>)}</tbody>
+            <tbody>{loaded.map((k) => <tr key={`${k.layer}:${k.name}`}><td className={ui.mono}>{k.name}</td><td>{k.layer === 'project' ? '项目' : '全局'}</td><td>{LEVEL[k.maxLevel] ?? k.maxLevel}</td><td>{k.reads}</td><td>{k.steps}</td><td>{fmt.tokens(k.tokens)}</td><td>{k.citedBy}</td></tr>)}</tbody>
           </table>
         </div>
       )}

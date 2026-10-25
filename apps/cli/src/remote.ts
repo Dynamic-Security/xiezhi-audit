@@ -6,7 +6,8 @@ import { parseArgs } from 'node:util';
 import type {
   AnalysisDto, ApiErrorBody, AuditDetailDto, AuditSummaryDto, EventDto, ExportDto, GitCredentialDto, Page, PlanDto, ProjectDto, RepoDto, ServiceDiscovery, UploadDto, VulnSummaryDto,
 } from '@xiezhi/contracts';
-import { modeArgs } from './modes.js';
+import { formatTokens, topUpMillionsArg } from '@xiezhi/contracts';
+import { addTokensArg, baseArgs, incrementalLines, modeArgs } from './modes.js';
 import { huntCommand } from './hunt.js';
 import { CliExit, EXIT_ERROR, EXIT_INCOMPLETE, EXIT_OK, confirm, print, printJson, readSecret } from './io.js';
 import { readSse, type SseMessage } from './sse.js';
@@ -86,10 +87,10 @@ export async function findProject(r: Remote, idOrName: string): Promise<ProjectD
   return p;
 }
 
-function exitFor(a: { status: string; partialReasons: string[] }, id: string): number {
+function exitFor(a: { status: string; partialReasons: string[]; budget?: { suggestedTopUp?: number } }, id: string): number {
   print(`审计 ${id} 状态：${a.status}${a.partialReasons.length ? `（${a.partialReasons.join(' > ')}）` : ''}`);
   if (a.status === 'completed') return EXIT_OK;
-  if (a.status === 'waiting_budget') print(`预算不足。追加后继续：xiezhi audit resume ${id} --add-tokens 100000`);
+  if (a.status === 'waiting_budget') print(`预算不足。追加后继续：xiezhi audit resume ${id} --add-tokens ${topUpMillionsArg(a.budget?.suggestedTopUp ?? 0)}`);
   if (a.status === 'interrupted' || a.status === 'paused') print(`可继续：xiezhi audit resume ${id}`);
   return a.status === 'failed' ? EXIT_ERROR : EXIT_INCOMPLETE;
 }
@@ -203,7 +204,7 @@ export async function remoteCommand(r: Remote, cmd: string, sub: string | undefi
         if (a && a.id === analysisId && a.status !== 'running') break;
         await sleep(1000);
       }
-      print(`分析 ${a.id}：${a.status}${a.reason ? `（${a.reason}）` : ''}${a.model ? ` · 模型 ${a.model} · ${a.tokens.input + a.tokens.output} tokens` : ''}`);
+      print(`分析 ${a.id}：${a.status}${a.reason ? `（${a.reason}）` : ''}${a.model ? ` · 模型 ${a.model} · ${formatTokens(a.tokens.input + a.tokens.output)} tokens` : ''}`);
       for (const x of a.repos) print(`  ${x.name}  ${x.status}  ${x.roles.map((ro) => `${ro.role} ${ro.confidence.toFixed(2)}`).join('、') || '—'}${x.error ? `  ${x.error}` : ''}`);
       return a.status === 'succeeded' ? EXIT_OK : a.status === 'partial' ? EXIT_INCOMPLETE : EXIT_ERROR;
     }
@@ -234,7 +235,7 @@ export async function remoteCommand(r: Remote, cmd: string, sub: string | undefi
       if (values.json) { printJson(a); return EXIT_OK; }
       print(`${a.id}  ${a.title}`);
       print(`状态：${a.status}${a.partialReasons.length ? `（${a.partialReasons.join(' > ')}）` : ''} · 阶段 ${a.phase}`);
-      print(`预算：${a.budget.consumed.tokens}/${a.budget.effective.tokens} tokens`);
+      print(`预算：${formatTokens(a.budget.consumed.tokens)}/${formatTokens(a.budget.effective.tokens)} tokens`);
       for (const st of a.steps) print(`  ${st.kind.padEnd(10)} ${st.status.padEnd(14)} attempt=${st.attempt} tokens=${st.tokensIn + st.tokensOut}${st.errorClass ? ` ${st.errorClass}` : ''}`);
       return EXIT_OK;
     }
@@ -251,7 +252,7 @@ export async function remoteCommand(r: Remote, cmd: string, sub: string | undefi
       if (!repo && !multi) throw new CliExit(EXIT_ERROR, str('repo') ? `仓库不存在：${str('repo')}` : '项目有多个仓库，请用 --repo 指定目标仓库，或 --mode multi 做多仓库合并审计');
       const created = await r.post<{ auditId: string }>('/audit-plans', {
         projectId: p.id, ...(repo && !multi ? { repository: repo.id } : {}), ...modeArgs(str('mode'), str('repos'), str('related')), ...(str('ref') ? { ref: str('ref') } : {}), ...(str('title') ? { title: str('title') } : {}), ...(override ? { strategyOverride: override } : {}),
-        ...(str('scene') ? { scene: str('scene') } : {}), ...(str('base') ? { baseRef: str('base') } : {}),
+        ...(str('scene') ? { scene: str('scene') } : {}), ...baseArgs(str('mode'), str('base')),
       });
       const id = created.auditId;
       print(`审计 ${id} 已创建（服务模式），正在生成计划…`);
@@ -262,7 +263,7 @@ export async function remoteCommand(r: Remote, cmd: string, sub: string | undefi
         print('— 审计计划 —');
         print(plan.plan.summary);
         const inc = plan.plan.incremental;
-        if (inc) print(`增量：对比 ${inc.base.ref ?? (inc.base.commit ? inc.base.commit.slice(0, 12) : '上次审计的版本')}；变更文件 新增 ${inc.changedFiles.added} / 修改 ${inc.changedFiles.modified} / 删除 ${inc.changedFiles.deleted} / 移动 ${inc.changedFiles.renamed}；影响分析 ${inc.mode}`);
+        if (inc) for (const l of incrementalLines(inc)) print(l);
         for (const d of plan.plan.focusDirections) print(`  重点：${d.direction} — ${d.reason}`);
         print(`预估：${plan.plan.estimate.tokens.p50}–${plan.plan.estimate.tokens.p90} tokens`);
       }
@@ -278,14 +279,14 @@ export async function remoteCommand(r: Remote, cmd: string, sub: string | undefi
       const id = need(positionals[0], 'auditId');
       const a = await r.get<AuditDetailDto>(`/audits/${id}`);
       if (values['no-stage-quotas']) {
-        await r.post(`/audits/${id}/budget-grants`, { ...(str('add-tokens') ? { tokens: Number(str('add-tokens')) } : {}), liftStageQuotas: true }, { 'idempotency-key': `cli-${id}-${a.budget.effective.tokens}-lift-${str('add-tokens') ?? ''}` });
+        await r.post(`/audits/${id}/budget-grants`, { ...(str('add-tokens') ? { tokens: addTokensArg(str('add-tokens')!) } : {}), liftStageQuotas: true }, { 'idempotency-key': `cli-${id}-${a.budget.effective.tokens}-lift-${str('add-tokens') ?? ''}` });
         if (a.status === 'interrupted' || a.status === 'paused') await r.post(`/audits/${id}/resume`, values['restart-filtered'] ? { restartFiltered: true } : undefined);
       } else if (a.status === 'waiting_budget') {
         if (values['decline-budget']) await r.post(`/audits/${id}/budget-grants/decline`);
-        else if (str('add-tokens')) await r.post(`/audits/${id}/budget-grants`, { tokens: Number(str('add-tokens')), ...(str('stage') ? { stage: str('stage') } : {}) }, { 'idempotency-key': `cli-${id}-${a.budget.effective.tokens}-${str('add-tokens')}-${str('stage') ?? ''}` });
-        else throw new CliExit(EXIT_ERROR, '审计在等待预算：使用 --add-tokens N 追加、--no-stage-quotas 取消阶段额度，或 --decline-budget 用已有结果收尾');
+        else if (str('add-tokens')) await r.post(`/audits/${id}/budget-grants`, { tokens: addTokensArg(str('add-tokens')!), ...(str('stage') ? { stage: str('stage') } : {}) }, { 'idempotency-key': `cli-${id}-${a.budget.effective.tokens}-${str('add-tokens')}-${str('stage') ?? ''}` });
+        else throw new CliExit(EXIT_ERROR, '审计在等待预算：使用 --add-tokens N 追加 N M tokens、--no-stage-quotas 取消阶段额度，或 --decline-budget 用已有结果收尾');
       } else {
-        if (str('add-tokens')) await r.post(`/audits/${id}/budget-grants`, { tokens: Number(str('add-tokens')) }, { 'idempotency-key': `cli-${id}-${a.budget.effective.tokens}-${str('add-tokens')}` });
+        if (str('add-tokens')) await r.post(`/audits/${id}/budget-grants`, { tokens: addTokensArg(str('add-tokens')!) }, { 'idempotency-key': `cli-${id}-${a.budget.effective.tokens}-${str('add-tokens')}` });
         if (a.status === 'interrupted' || a.status === 'paused') await r.post(`/audits/${id}/resume`, values['restart-filtered'] ? { restartFiltered: true } : undefined);
       }
       print('已继续');

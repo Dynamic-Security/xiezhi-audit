@@ -29,15 +29,15 @@ const Ratio = Type.Number({ minimum: 0, maximum: 1 });
  * stage that uses up its quota waits for a top-up like the total budget. `prepare` = plan, scope and
  * profile; `hypotheses` = threat modeling and hypothesis verification; `verify` = reverification.
  */
-export const BUDGET_STAGES = ['prepare', 'triage', 'hunt', 'gap', 'hypotheses', 'explore', 'merge', 'review', 'verify'] as const;
+export const BUDGET_STAGES = ['prepare', 'hypotheses', 'triage', 'hunt', 'gap', 'merge', 'explore', 'review', 'verify'] as const;
 export type BudgetStage = (typeof BUDGET_STAGES)[number];
 /**
  * Default shares of the total for full audits. They may add up to more than 1: a stage that is off uses
  * nothing, and the total stays the overall limit.
  */
 export const DEFAULT_BUDGET_SHARES: Readonly<Record<BudgetStage, number>> = {
-  // hunt 65% → 85%; 500 candidates × 18k = 9M plus 4 reserved batches (≈ 0.6M) must fit in 12M × share.
-  prepare: 0.05, triage: 0.1, hunt: 0.85, gap: 0.2, hypotheses: 0.2, explore: 0.15, merge: 0.03, review: 0.15, verify: 0.15,
+  // Hunt 65% → 85%; 500 candidates × 18k = 9M plus 4 reserved batches (≈ 0.6M) must fit in 12M × share.
+  prepare: 0.05, hypotheses: 0.2, triage: 0.1, hunt: 0.85, gap: 0.2, merge: 0.03, explore: 0.15, review: 0.15, verify: 0.15,
 };
 const BudgetShares = Type.Object(
   Object.fromEntries(BUDGET_STAGES.map((k) => [k, Type.Optional(Ratio)])) as Record<BudgetStage, TOptional<typeof Ratio>>,
@@ -56,11 +56,9 @@ export const ImpactParams = Type.Object({
   minConfidence: closedSet(['resolved', 'heuristic'] as const),
   /** Changed indexable files above this share of all indexable files → full scan. */
   maxChangedRatio: Ratio,
-  /** Diff-seeded variant search over the whole repository. */
-  variantSearch: Type.Boolean(),
 }, { additionalProperties: false });
 export type ImpactParams = Static<typeof ImpactParams>;
-export const DEFAULT_IMPACT: ImpactParams = { maxDepth: 6, minConfidence: 'heuristic', maxChangedRatio: 0.3, variantSearch: false };
+export const DEFAULT_IMPACT: ImpactParams = { maxDepth: 6, minConfidence: 'heuristic', maxChangedRatio: 0.3 };
 
 export const AuditStrategy = Type.Object({
   version: Type.Literal(1),
@@ -110,6 +108,12 @@ export const AuditStrategy = Type.Object({
     stages: Type.Optional(Type.Object({
       threat: Type.Optional(Type.Boolean()), hunt: Type.Optional(Type.Boolean()), verify: Type.Optional(Type.Boolean()), review: Type.Optional(Type.Boolean()),
     }, { additionalProperties: false })),
+    /**
+     * A content filter refused one model of a crossed task while another can still run it — `continue` (the
+     * default) goes on with the other models and the task falls back to one model; `pause` stops the audit for a person
+     * to switch the model.
+     */
+    onFiltered: Type.Optional(Type.Union([Type.Literal('continue'), Type.Literal('pause')])),
   }, { additionalProperties: false }),
   stages: Type.Object({
     /**
@@ -256,20 +260,23 @@ export function sceneDefaults(scene: Scene, m: ModelDefaults): AuditStrategy {
       return {
         ...base,
         tools: { ...base.tools, ast: true, lsp: true, coverageCompare: true },
-        stages: { adversarialReview: true, deepExplore: false },
+        // 风险假设先行 is on by default for full and incremental audits.
+        stages: { adversarialReview: true, deepExplore: false, threatHypotheses: true },
         concurrency: { sessions: 4 },
         // 3M was exhausted by triage at real scale.
         // Stage quotas stopped too many real audits — off by default, shares kept for the switch.
         budget: { tokens: 12_000_000, durationSec: 14_400, stages: { ...DEFAULT_BUDGET_SHARES }, stageLimits: false },
         // 200 left every repository with more than ~250 candidates short of the coverage target.
         limits: { maxRounds: 30, maxTurnsPerStep: 80, maxCandidates: 500 },
-        coverageTarget: { entry: 0.9, sink: 0.8, onShortfall: 'declare' },
+        // Full coverage targets and automatic gap fill by default.
+        coverageTarget: { entry: 1, sink: 1, onShortfall: 'gap_fill' },
         minConfidence: 0.6,
       };
     case 'incremental':
       return {
         ...base,
         tools: { ...base.tools, gitHistory: true },
+        stages: { ...base.stages, threatHypotheses: true },
         concurrency: { sessions: 2 },
         // no stage quotas by default. 300k did not cover the threat model
         // the lead needs; a 4-file real-model increment used about 3M (cache reads included).
@@ -292,7 +299,14 @@ export function sceneDefaults(scene: Scene, m: ModelDefaults): AuditStrategy {
  */
 export function upgradeStrategy(raw: unknown): AuditStrategy {
   const s = raw as AuditStrategy & { impact?: ImpactParams; connectors?: string[] };
-  return { ...s, budget: withoutCostCap(s.budget), stages: migrateStages(s.stages) as AuditStrategy['stages'], impact: s.impact ?? { ...DEFAULT_IMPACT }, connectors: s.connectors ?? [] };
+  return { ...s, budget: withoutCostCap(s.budget), stages: migrateStages(s.stages) as AuditStrategy['stages'], impact: withoutVariantSearch(s.impact) ?? { ...DEFAULT_IMPACT }, connectors: s.connectors ?? [] };
+}
+
+/** The removed diff-seeded variant search (`impact.variantSearch`) is dropped wherever it is read. */
+function withoutVariantSearch<T>(impact: T): T {
+  if (!isPlainObject(impact) || !('variantSearch' in impact)) return impact;
+  const { variantSearch: _dropped, ...rest } = impact;
+  return rest as T;
 }
 
 /** the removed cost cap is dropped wherever a budget is read. */
@@ -361,6 +375,7 @@ function migrateLayer(layer: Record<string, unknown> | undefined): Record<string
   let out = layer;
   if (isPlainObject(out.stages)) out = { ...out, stages: migrateStages(out.stages) };
   if (isPlainObject(out.budget) && 'costCap' in out.budget) out = { ...out, budget: withoutCostCap(out.budget) };
+  if (isPlainObject(out.impact) && 'variantSearch' in out.impact) out = { ...out, impact: withoutVariantSearch(out.impact) };
   if (isPlainObject(out.budget) && customShares(out.budget.stages) && out.budget.stageLimits === undefined) out = { ...out, budget: { ...out.budget, stageLimits: true } };
   return out;
 }

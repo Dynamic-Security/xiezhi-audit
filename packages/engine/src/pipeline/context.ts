@@ -5,7 +5,7 @@ import type { AuditStrategy, PartialReason } from '@xiezhi/contracts';
 import type { Store } from '@xiezhi/store';
 import { budgetSuggestion, durationExceeded } from '../budget.js';
 import type { AuditRuntime } from '../runtime.js';
-import { getStep, isStepTerminal, listSteps, NOT_STARTED, transitionAudit, transitionStep, type AuditRow, type StepRow } from '../state.js';
+import { getStep, isStepTerminal, listSteps, NOT_RUN_MARK, NOT_STARTED, transitionAudit, transitionStep, type AuditRow, type StepRow } from '../state.js';
 import { runStep, type AttemptContext, type RunnerOptions, type StepOutcome, type StepResult } from '../step-runner.js';
 
 export type RunResult = { status: AuditRow['status']; partialReasons: PartialReason[]; suggestedTopUp?: number };
@@ -70,7 +70,8 @@ export class PipelineRun {
 
   /** A step that may not run (budget declined, running time used up) and has not started is skipped. */
   skipUnrun(row: StepRow): void {
-    if (NOT_STARTED.includes(getStep(this.store, row.id).status)) transitionStep(this.store, row.id, 'skipped', {}, this.declined ? 'budget declined' : 'duration exhausted');
+    const why = this.declined ? 'budget declined' : 'duration exhausted';
+    if (NOT_STARTED.includes(getStep(this.store, row.id).status)) transitionStep(this.store, row.id, 'skipped', { error_summary: `${NOT_RUN_MARK}${why}` }, why);
   }
 
   /** Steps of a kind that have not finished: what a budget stop still has to run. */

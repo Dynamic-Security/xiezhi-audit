@@ -1,11 +1,11 @@
-// Completion gate and report rendering. The agent saying "done" never counts:
-// required artifacts, open blocking questions, coverage targets and reconciliation decide.
-import { sortPartialReasons, type PartialReason } from '@xiezhi/contracts';
+// Completion gate and report rendering. The agent saying "done" never counts: the reconciled finding
+// set and the mainline decide the status; everything else is recorded as a process issue.
+import { sortPartialReasons, stepRole, type PartialReason, type StageId } from '@xiezhi/contracts';
 import { exportAudit } from '@xiezhi/report';
 import { fromJson } from '@xiezhi/store';
 import { finalizeCoverage, mergeBackfill, unconcludedSummary, type UnconcludedSummary } from '../coverage.js';
 import type { AuditRuntime } from '../runtime.js';
-import { listSteps } from '../state.js';
+import { listSteps, NOT_RUN_MARK } from '../state.js';
 import { addRevision } from '../vulns.js';
 import { obligationSummary, type ObligationSummary } from '../obligations.js';
 import { threatHypothesesOn, verificationTargets } from '../threat.js';
@@ -33,6 +33,13 @@ export interface GateResult {
 
 /** failed review steps above this share of all review steps make the audit partial. */
 export const REVIEW_FAILURE_TOLERANCE = 0.1;
+
+/**
+ * The stages that do the audit's main work. Any of them with a step that never ran (budget declined,
+ * running time used up, audit ended first) or with only failed steps leaves the audit partial; everything else that
+ * went wrong is a process issue on a completed audit.
+ */
+const MAINLINE_STAGES: readonly StageId[] = ['lead', 'hunt', 'locate', 'judge', 'verify'];
 
 /** Deep exploration (⑪): decide steps and its hunts (`R<n>-C1`). */
 const isExploreStep = (s: { kind: string; lineage_id: string | null }) => s.kind === 'decide' || (s.kind === 'hunt' && /^R\d+-/.test(s.lineage_id ?? ''));
@@ -81,6 +88,8 @@ export function evaluateGate(rt: AuditRuntime, stepId: string, carried: PartialR
   if (reviewTolerated) notices.push(`${failedReviews.length}/${reviews.length} 个复核步骤失败，${unreviewed.length} 条发现未复核`);
   const failedExplore = failed.filter(isExploreStep);
   if (failedExplore.length) notices.push(`${failedExplore.length} 个深度探索步骤失败，对应方向未调查完`);
+  const filteredLanes = steps.filter((s) => s.status === 'skipped' && s.error_class === 'CONTENT_FILTERED');
+  if (filteredLanes.length) notices.push(`${filteredLanes.length} 个交叉审查步骤被模型的内容过滤拦截，只采用了其他模型的结果`);
   const counted = failed.filter((s) => !(reviewTolerated && s.kind === 'challenge') && !isExploreStep(s));
   for (const s of counted) {
     if (s.error_class === 'OUTPUT_CONTRACT') reasons.add('OUTPUT_CONTRACT_FAILED');
@@ -91,6 +100,19 @@ export function evaluateGate(rt: AuditRuntime, stepId: string, carried: PartialR
   const unreconciled = rt.store.get<{ n: number }>(`SELECT COUNT(*) AS n FROM finding WHERE audit_id = ? AND state = 'submitted'`, rt.auditId)!.n;
   checks.push({ name: 'reconciled', ok: unreconciled === 0, detail: `${unreconciled} unreconciled finding(s)` });
   if (unreconciled > 0) reasons.add('STEP_FAILED');
+
+  // The mainline ran through when every mainline stage ran all its steps and at least one of each
+  // succeeded (a failure replaced by its split parts or fallback counts as succeeded), findings were all reconciled
+  // and a reverification has a verdict for each target.
+  const mainline = steps.filter((s) => MAINLINE_STAGES.includes(stepRole(s.kind, s.lineage_id)?.stage as StageId));
+  const notRun = mainline.filter((s) => s.status === 'skipped' && (s.error_summary ?? '').startsWith(NOT_RUN_MARK));
+  const allFailed = [...new Set(mainline.map((s) => stepRole(s.kind, s.lineage_id)!.stage))].filter((st) => {
+    const own = mainline.filter((s) => stepRole(s.kind, s.lineage_id)!.stage === st && s.status !== 'skipped');
+    return own.length > 0 && own.every((s) => s.status === 'failed' && !superseded.has(s.id));
+  });
+  const verdictsMissing = reverify && checks.some((c) => c.name === 'verdicts' && !c.ok);
+  const mainlineOk = !notRun.length && !allFailed.length && unreconciled === 0 && !verdictsMissing;
+  checks.push({ name: 'mainline', ok: mainlineOk, detail: `${notRun.length} mainline step(s) not run${allFailed.length ? `, every step failed in ${allFailed.join(', ')}` : ''}` });
 
   // Open blocking questions: no longer a reason for “partial”. The analysis went on under the
   // assumption the Agent stated; conclusions that depend on the answer stay pending and the revision says which
@@ -174,7 +196,8 @@ export function evaluateGate(rt: AuditRuntime, stepId: string, carried: PartialR
   // only gaps in a target repository's index make its coverage incomplete.
   for (const r of rt.targets) if (rt.indexes.get(r.name)?.gaps.length) reasons.add('INDEX_DEGRADED');
   const partialReasons = sortPartialReasons(reasons);
-  const status: GateResult['status'] = !reconciled ? 'failed' : partialReasons.length ? 'partial' : 'completed';
+  // The reasons stay on a completed audit as process issues; only the mainline makes it partial.
+  const status: GateResult['status'] = !reconciled ? 'failed' : mainlineOk ? 'completed' : 'partial';
   rt.event('gate.evaluated', { status, partial_reasons: partialReasons, checks, ...(notices.length ? { notices } : {}) }, stepId);
   return {
     status, partialReasons, checks, coverage, gaps: gaps.slice(0, 500), ...(unconcluded ? { unconcluded } : {}),

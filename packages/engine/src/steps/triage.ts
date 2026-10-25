@@ -75,11 +75,22 @@ export function scopePredicate(include: string[], exclude: string[]): (path: str
   return (p) => !TEST_PATH.test(p) && !isTestPath(p) && (!inc || inc(p)) && !(exc && exc(p));
 }
 
+/** A path parameter in either notation: `{id}` (Spring, OpenAPI) or `:id` (Express, NestJS, Koa). */
+const PATH_PARAM = /(^|\/)(\{[^/}]*\}|:[A-Za-z_][\w-]*)(?=\/|$)/;
+
+/**
+ * Whether an HTTP entry addresses an object by id in its path. Only `{…}` counted before: every NestJS / Express route
+ * (`/deposits/:depositId`) ranked as a plain one, and one project's gateway IDOR routes fell past the candidate limit.
+ */
+export function hasPathParam(e: Pick<EntryPoint, 'pathTemplate' | 'entryKey'>): boolean {
+  return PATH_PARAM.test(e.pathTemplate ?? '') || (!e.entryKey.startsWith('rpc:') && e.entryKey.includes('{}'));
+}
+
 /** Heuristic score of an entry candidate (before the triage model). */
 export function entryScore(e: EntryPoint, focus: ReadonlySet<string>): number {
   let score = 2;
   // Object id in the path (or a GraphQL id argument / mutation) → IDOR candidate.
-  if (e.entryKey.startsWith('rpc:graphql:') ? graphqlStateOrById(e.entryKey, e.pathTemplate) : (e.pathTemplate ?? '').includes('{')) score += 2;
+  if (e.entryKey.startsWith('rpc:graphql:') ? graphqlStateOrById(e.entryKey, e.pathTemplate) : hasPathParam(e)) score += 2;
   if (e.authSignals.length === 0) score += 1;
   if (focus.has('authz_object') || focus.has('authz_function')) score += 2;
   return score;
@@ -210,6 +221,18 @@ export function splitListing(lines: string[], maxChars: number): string[][] {
   return parts;
 }
 
+/** How many unscored ids the follow-up lists; the model has the whole listing in its context. */
+const UNSCORED_LISTED = 40;
+
+/** The follow-up of a triage session that left listed candidates unscored (asked once). */
+export function unscoredPrompt(ids: string[]): string {
+  return [
+    P('nudge.triage.unscored', { n: String(ids.length) }),
+    ...ids.slice(0, UNSCORED_LISTED).map((id) => `- ${id}`),
+    ...(ids.length > UNSCORED_LISTED ? [`- ……另有 ${ids.length - UNSCORED_LISTED} 个`] : []),
+  ].join('\n');
+}
+
 /**
  * `heuristicOnly`: the deterministic ordering without the triage model — the fallback when the model
  * failed, identical to a strategy without `models.triage`.
@@ -230,14 +253,40 @@ export async function triageStep(rt: AuditRuntime, ctx: AttemptContext, opts: { 
         const unknown = a.scores.filter((s) => !resolve(s.candidateId)).map((s) => s.candidateId);
         return unknown.length ? [P('feedback.triage.unknown_candidate', { ids: unknown.slice(0, 5).join(', ') })] : [];
       },
-      run: () => ({ text: 'accepted' }),
+      // With gpt-6-luna: one miscopied id among hundreds of scores refused a 16k-token call, and the model spent
+      // another five minutes writing it all again. A few unknown ids are dropped (those candidates rank by their heuristic
+      // score); a call that is mostly unknown ids is still refused.
+      prune: (a: { scores: { candidateId: string }[] }) => {
+        const unknown = a.scores.filter((s) => !resolve(s.candidateId));
+        if (!unknown.length || unknown.length * 2 > a.scores.length) return null;
+        return {
+          args: { ...a, scores: a.scores.filter((s) => resolve(s.candidateId)) },
+          note: P('feedback.triage.unknown_dropped', { ids: unknown.slice(0, 5).map((s) => s.candidateId).join(', '), n: String(unknown.length) }),
+        };
+      },
+      run: (a: { scores: { candidateId: string }[] }) => {
+        for (const s of a.scores) { const id = resolve(s.candidateId); if (id) scoredNow.add(id); }
+        return { text: 'accepted' };
+      },
     };
+    const idOfLine = new Map(lines.map((l, i) => [l, shortlist[i]!.id]));
+    const scoredNow = new Set<string>();
     const scores = new Map<string, { score: number; reason: string }>();
     for (const part of parts) {
+      const partIds = part.map((l) => idOfLine.get(l)!);
       const outcome = await rt.session({
         stepId: ctx.stepId, attempt: ctx.attempt, kind: 'triage', phase: 'hunt', model, signal: ctx.signal,
         prompt: `${P('triage.intro')}\n\n${part.join('\n')}`,
         submitTools: [submit], requiredSubmits: ['submit_triage'], maxTurns: Math.min(30, rt.strategy.limits.maxTurnsPerStep),
+        // With gpt-6-luna: two sessions over 750 listed candidates scored 69 and called it “全部候选”; the rest
+        // ranked by the heuristic alone and the gateway's by-id routes (the seeded IDORs) fell past the candidate limit.
+        // A session that leaves more than a tenth of its part unscored is asked once for the rest.
+        completionCheck: () => {
+          const left = partIds.filter((id) => !scoredNow.has(id));
+          if (left.length <= Math.max(10, partIds.length / 10)) return null;
+          rt.event('judgement.made', { kind: 'triage_unscored', phase: 'asked', count: left.length, of: partIds.length, ids: left.slice(0, 50) }, ctx.stepId);
+          return unscoredPrompt(left);
+        },
       });
       const err = sessionError(outcome);
       if (err) throw err;

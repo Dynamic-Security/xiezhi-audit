@@ -294,7 +294,7 @@ type PlanEstimateDto = NonNullable<HuntDto['plan']>['estimate'];
 function PlanEstimate({ estimate: e }: { estimate: PlanEstimateDto }) {
   const minutes = (sec: number) => Math.max(1, Math.round(sec / 60));
   const pc = e.precheck;
-  const range = `约 ${fmt.compact(e.tokens.p50)}–${fmt.compact(e.tokens.p90)} tokens，${minutes(e.durationSec.p50)}–${minutes(e.durationSec.p90)} 分钟`;
+  const range = `约 ${fmt.tokens(e.tokens.p50)}–${fmt.tokens(e.tokens.p90)} tokens，${minutes(e.durationSec.p50)}–${minutes(e.durationSec.p90)} 分钟`;
   if (pc.status === 'running') {
     return <p className={ui.muted} style={{ fontSize: 13 }}><Spinner /> 正在预检：按排查特征定位 {e.repositories} 个仓库（不调用模型），已完成 {pc.repos.length} 个…</p>;
   }

@@ -47,8 +47,8 @@ export interface FakeAgentOptions {
   challengeConnector?: { delta: number };
   /** The java-mini reverification queries `connectorQuery` and cites only that result. */
   reverifyConnector?: boolean;
-  /** conversations: what the scripted assistant does for the next reply. */
-  chat?: 'investigate' | 'plan' | 'text' | 'bad_card' | 'slow' | 'reverify_fixed' | 'hunt_all' | 'merge' | 'connector';
+  /** M7 conversations: what the scripted assistant does for the next reply. */
+  chat?: 'investigate' | 'plan' | 'text' | 'bad_card' | 'slow' | 'reverify_fixed' | 'hunt_all' | 'merge' | 'connector' | 'project' | 'threat_model' | 'vuln_drafts' | 'analysis';
   /** The challenge maintains the finding but attaches a pendingCondition anyway (seen with a real model). */
   challengeMaintainWithCondition?: boolean;
   /** Second-opinion review of “已修复” / “受影响”. */
@@ -114,6 +114,8 @@ export interface FakeAgentOptions {
   expertBadFindings?: boolean;
   /** Every expert round leaves a direction open (the last round's go to the deep exploration). */
   expertOpenLeadAlways?: boolean;
+  /** With `expertOpenLeadAlways`: how many directions each such round leaves (default 1). */
+  expertOpenLeadCount?: number;
   /** The experts read nothing and conclude nothing (the ledger stays open for ⑨). */
   expertIdle?: boolean;
   /**
@@ -135,6 +137,8 @@ export interface FakeAgentOptions {
   checklistAllCovered?: boolean;
   /** A checklist fill session lists its items in reviewedTargets (as `repo:path:line`). */
   fillListsItems?: boolean;
+  /** The checklist fill first sums up all items in one scopeReviewed, then answers per item when told. */
+  fillSummaryOnly?: boolean;
   /** The first lead session's dispatch reports a context above the lead's cap (→ handoff to a second session). */
   leadContextCap?: boolean;
   /** The lead's first reply is two dispatch calls side by side, both naming the first domain (haiku). */
@@ -272,7 +276,11 @@ function scriptedAgent(opts: FakeAgentOptions) {
       if (assistantTurns === 0) return { toolCalls: [{ name: 'read', args: { path: CTRL } }] };
       if (!body.messages.some((m) => m.role === 'tool' && text(m) === 'recorded')) {
         const keys = [...user.matchAll(/itemId=`([^`]+)`/g)].map((m) => m[1]!);
-        return { toolCalls: [{ name: 'submit_checklist', args: { items: keys.map((itemId) => (/:(ws-|csrf-graphql)/.test(itemId)
+        // An item refused as covered without its hit files is resubmitted as uncovered (start files: the hits).
+        const refused = new Set([...lastToolText.matchAll(/items\[(\d+)\]: covered must cite the hit files/g)].map((m) => keys[Number(m[1])]!));
+        return { toolCalls: [{ name: 'submit_checklist', args: { items: keys.map((itemId) => (refused.has(itemId)
+          ? { itemId, status: 'uncovered', reason: '命中的文件还没读，交给补审' }
+          : /:(ws-|csrf-graphql)/.test(itemId)
           ? { itemId, status: 'not_applicable', reason: '系统没有 WebSocket 与 GraphQL 入口（读过的控制器只有 REST 接口）' }
           : /:csrf-state-changing$/.test(itemId) && !opts.checklistAllCovered
             ? { itemId, status: 'uncovered', reason: '未找到 CSRF 防护配置，需要补审', startFiles: [CTRL] }
@@ -352,25 +360,6 @@ function scriptedAgent(opts: FakeAgentOptions) {
       }
       return { text: 'done' };
     }
-    // The system-understanding session writes the profile and the threat model together; it reads code only
-    // through a `task` sub-agent (here: the mechanism's file).
-    if (user.includes('这是系统理解环节')) {
-      const riskFirst = user.includes('“风险假设先行”的威胁建模环节');
-      const recorded = (t: string) => body.messages.some((m) => m.role === 'tool' && text(m).startsWith(t));
-      if (opts.expertMechanism && !body.messages.some((m) => m.role === 'tool' && text(m).includes('子任务结论'))) {
-        return { toolCalls: [{ name: 'task', args: { goal: `读令牌过滤器的实现 ${TOKEN_FILTER}，说明它如何校验令牌`, files: [TOKEN_FILTER] } }] };
-      }
-      // Look at the structure first (as the profile session did), then submit.
-      if (assistantTurns === 0 && !opts.expertMechanism) return { toolCalls: [{ name: 'entrypoints', args: {} }] };
-      if (!recorded('profile recorded')) {
-        const threat = riskFirst
-          ? [...(wantDomains ? DOMAINS.map((d) => ({ name: 'submit_risk_domain', args: d })) : []), { name: 'submit_threat_model', args: { hypotheses: RISK_FIRST_HYPOTHESES } }]
-          : [{ name: 'submit_threat_model', args: { hypotheses: [] } }, ...(wantDomains ? DOMAINS.map((d) => ({ name: 'submit_risk_domain', args: d })) : []), ...(wantDomains ? policy : [])];
-        return { toolCalls: [{ name: 'submit_profile', args: PROFILE_ARGS }, ...threat] };
-      }
-      if (opts.noDomains && !recorded('recorded domain')) return { toolCalls: [{ name: 'submit_risk_domain', args: DOMAINS[1] }] };
-      return { text: 'done' };
-    }
     // One submit_risk_domain call per domain; with `noDomains` the domain comes only after a reminder.
     if (user.includes('这是威胁建模环节')) {
       if (assistantTurns === 0) return { toolCalls: [...mechRead, { name: 'submit_threat_model', args: { hypotheses: [] } }, ...(wantDomains ? DOMAINS.map((d) => ({ name: 'submit_risk_domain', args: d })) : []), ...(wantDomains ? policy : [])] };
@@ -379,7 +368,8 @@ function scriptedAgent(opts: FakeAgentOptions) {
     }
     if (user.includes('“风险假设先行”的威胁建模环节')) {
       if (assistantTurns === 0) {
-        return { toolCalls: [...(wantDomains ? DOMAINS.map((d) => ({ name: 'submit_risk_domain', args: d })) : []), { name: 'submit_threat_model', args: { hypotheses: RISK_FIRST_HYPOTHESES } }] };
+        // The threat model reads its mechanisms itself (no longer through the understanding session's sub-agent).
+        return { toolCalls: [...mechRead, ...(wantDomains ? DOMAINS.map((d) => ({ name: 'submit_risk_domain', args: d })) : []), { name: 'submit_threat_model', args: { hypotheses: RISK_FIRST_HYPOTHESES } }] };
       }
       return { text: 'done' };
     }
@@ -444,6 +434,30 @@ function scriptedAgent(opts: FakeAgentOptions) {
         }
         return { text: '草稿已生成，请在设置中填写 token 并测试连接。' };
       }
+      // A project with an audit right after (the second path does not exist); then a threat model from the pasted
+      // requirement, drafts for V-1 and a project analysis. An invalid project name is refused first.
+      if (mode === 'project') {
+        const path = /仓库 (\S+)/.exec(user)?.[1] ?? '';
+        if (assistantTurns === 0) return { toolCalls: [{ name: 'propose_project', args: { name: '-bad', repos: [{ path }], rationale: 'x' } }] };
+        if (assistantTurns === 1) {
+          return { toolCalls: [{ name: 'propose_project', args: {
+            name: '会话项目', repos: [{ path }, { path: `${path}-missing` }], analyze: true, audit: { title: '会话建项目审计' }, rationale: '用户要求建项目并审计',
+          } }] };
+        }
+        return { text: '已生成新建项目卡片。' };
+      }
+      if (mode === 'threat_model') {
+        if (assistantTurns > 0) return { text: '已生成威胁建模卡片。' };
+        return { toolCalls: [{ name: 'propose_threat_model', args: { projectId, title: '退款需求', sources: [{ kind: 'user_message', title: '用户贴的需求' }], rationale: '用户给出了需求' } }] };
+      }
+      if (mode === 'vuln_drafts') {
+        if (assistantTurns > 0) return { text: '已生成草稿卡片。' };
+        return { toolCalls: [{ name: 'propose_vuln_drafts', args: { vulnId: 'V-1', kinds: ['fix', 'case'], rationale: '用户要修复建议与验证用例' } }] };
+      }
+      if (mode === 'analysis') {
+        if (assistantTurns > 0) return { text: '已生成项目分析卡片。' };
+        return { toolCalls: [{ name: 'propose_analysis', args: { projectId, rationale: '多仓库项目，先分析仓库角色' } }] };
+      }
       if (mode === 'plan') {
         if (assistantTurns > 0) return { text: '已生成审计计划卡片，请确认后生成计划。' };
         return { toolCalls: [{ name: 'propose_audit_plan', args: { request: { projectId, scene: 'full', title: '会话发起的全量审计' }, rationale: '用户要求审计该项目', recommended: ['开启质疑复核'] } }] };
@@ -462,11 +476,6 @@ function scriptedAgent(opts: FakeAgentOptions) {
       return { toolCalls: [{ name: 'propose_revision', args: { vulnId: 'V-1', severity: 'critical', handlingStatus: 'fixing', reason: '可直接读取全部订单，建议上调严重度并开始修复', evidence: [{ path: DAO, startLine: 17, endLine: 21 }] } }] };
     }
 
-    // variant search: abstract the fixed pattern into a search expression.
-    if (user.includes('这是增量审计的“变体搜索”')) {
-      if (assistantTurns > 0) return { text: 'patterns submitted' };
-      return { toolCalls: [{ name: 'submit_variant_patterns', args: { patterns: [{ description: '字符串拼接进 Statement.executeQuery', grep: 'executeQuery\\("SELECT[^"]*\'" \\+' }] } }] };
-    }
 
     if (sys.includes('仓库角色分析员')) {
       if (assistantTurns > 0) return { text: 'roles submitted' };
@@ -633,7 +642,7 @@ function scriptedAgent(opts: FakeAgentOptions) {
       if (opts.planBroken) return { text: 'no plan' };
       if (assistantTurns === 0) return { toolCalls: [{ name: 'entrypoints', args: {} }] };
       if (assistantTurns === 1) {
-        return { toolCalls: [{ name: 'submit_plan', args: { summary: 'Spring 订单服务，审计 SQL 注入与越权', focusDirections: [{ direction: 'SQL 注入', reason: 'Statement 拼接' }], plannedKnowledge: [{ skill: 'spring-authz-method', reason: '鉴权' }], contextNeeded: ['网关是否做鉴权'], limitations: [] } }] };
+        return { toolCalls: [{ name: 'submit_plan', args: { summary: 'Spring 订单服务，审计 SQL 注入与越权', focusDirections: [{ direction: 'SQL 注入', reason: 'Statement 拼接' }], plannedKnowledge: [{ skill: 'spring-authz-method', reason: '鉴权' }], contextNeeded: [{ question: '网关是否做鉴权', options: ['是，网关统一鉴权', '否，服务自行鉴权', '不确定'] }], limitations: [] } }] };
       }
       return { text: 'plan submitted' };
     }
@@ -790,15 +799,6 @@ function scriptedAgent(opts: FakeAgentOptions) {
       if (assistantTurns === 0) return { toolCalls: [{ name: 'read', args: { path: user.includes(TOKEN_FILTER) ? TOKEN_FILTER : CTRL } }] };
       return { text: '子任务结论：search 入口的 name 参数未经任何校验直接传入 OrderDao.search（OrderController.java:31-34）。' };
     }
-    // independent review: judge from the code only.
-    if (user.includes('请独立复核下面这条疑似漏洞')) {
-      if (assistantTurns === 0) return { toolCalls: [{ name: 'read', args: { path: DAO } }] };
-      if (assistantTurns === 1) {
-        const v = opts.review ?? 'holds';
-        return { toolCalls: [{ name: 'submit_review', args: { verdict: v, confidence: v === 'holds' ? 0.85 : 0.6, reason: v === 'refuted' ? 'name 在 DAO 前已被白名单校验' : 'name 直接拼接进 SQL', evidence: [{ path: DAO, startLine: 17, endLine: 21 }] } }] };
-      }
-      return { text: 'reviewed' };
-    }
 
     // hunt
     const ids = [...user.matchAll(/- id=`([^`]+)`\n\s+位置：([^:\n]+):([^:\n]+):(\d+)/g)].map((m) => ({ id: m[1]!, repo: m[2]!, path: m[3]! }));
@@ -806,6 +806,8 @@ function scriptedAgent(opts: FakeAgentOptions) {
     const changed = [...user.matchAll(/- 变更文件：([^:\n]+):(\S+)/g)].map((m) => m[2]!);
     // Deep-explore targets ("- repo:path:line  [explore] …") are read like changed files.
     for (const m of user.matchAll(/- [\w.-]+:(\S+?):\d+ {2}\[(?:explore|checklist|external)/g)) changed.push(m[1]!);
+    // Checklist fill items are listed as "- itemId=`…`（从 repo:path 开始）[checklist] …".
+    for (const m of user.matchAll(/（从 [\w.-]+:(\S+?) 开始）\[checklist\]/g)) changed.push(m[1]!);
     const files = [...new Set([...ids.map((i) => i.path), ...changed])];
     const hasSqli = ids.some((i) => i.path === DAO) || changed.includes(DAO);
     if (assistantTurns === 0) {
@@ -813,7 +815,7 @@ function scriptedAgent(opts: FakeAgentOptions) {
       const repoOf = new Map(ids.map((i) => [i.path, i.repo]));
       const multi = new Set(ids.map((i) => i.repo)).size > 1 || sys.includes('本次审计包含');
       const reads = [...new Set([...files, ...(hasSqli ? [DAO, CTRL] : [])])].map((p) => ({ name: 'read', args: { ...(multi && repoOf.get(p) ? { repo: repoOf.get(p) } : {}), path: p } }));
-      const calls = opts.askBlocking && hasSqli ? [...reads, { name: 'ask_user', args: { question: '网关是否对 /api/order/search 做鉴权？', blocking: true } }] : reads;
+      const calls = opts.askBlocking && hasSqli ? [...reads, { name: 'ask_user', args: { question: '网关是否对 /api/order/search 做鉴权？', blocking: true, options: ['是，网关校验登录与归属', '否，网关只转发', '不确定'] } }] : reads;
       const investigating = opts.markCandidates && user.includes('mark_candidate') ? [...(opts.markUnknown ? [{ name: 'mark_candidate', args: { candidateId: 'sink:not-listed', status: 'investigating' } }] : []), ...ids.slice(0, 2).map((i) => ({ name: 'mark_candidate', args: { candidateId: i.id, status: 'investigating' } }))] : [];
       const skills = hasSqli ? (opts.knowledge?.read ?? []).map((n) => ({ name: 'load_skill', args: { name: n, reason: '参考注入审计方法' } })) : [];
       const cq = hasSqli && opts.connectorQuery ? [{ name: 'connector_query', args: { ...opts.connectorQuery, reason: '确认网关是否做参数过滤' } }] : [];
@@ -830,12 +832,18 @@ function scriptedAgent(opts: FakeAgentOptions) {
     }
     // domain experts are hunted like a batch of their leads; a later round does not report the same finding again.
     const expertRound = user.includes('多领域专家漏洞狩猎的第') ? Number(/漏洞狩猎的第 (\d+) 轮/.exec(user)?.[1] ?? 1) : 0;
-    const openLeads = (opts.expertOpenLeadAlways && expertRound > 0 && hasSqli) || (opts.expertOpenLead && expertRound === 1 && hasSqli) ? { openLeads: [{ direction: '再看订单导出的文件名拼接', files: [CTRL] }] } : {};
+    const openLeads = (opts.expertOpenLeadAlways && expertRound > 0 && hasSqli) || (opts.expertOpenLead && expertRound === 1 && hasSqli) ? { openLeads: Array.from({ length: opts.expertOpenLeadCount ?? 1 }, (_, i) => ({ direction: i ? `再看订单导出的文件名拼接（${i + 1}）` : '再看订单导出的文件名拼接', files: [CTRL] })) } : {};
     const bogus = [
       ...(opts.expertUnknownTarget && expertRound > 0 ? [{ targetKind: 'entry', targetId: 'src/Nope.java#Missing', verdict: 'no_issue' }] : []),
       // A fill session listing its checklist items (shown as `repo:path:line`) in reviewedTargets, as real models do.
-      ...(opts.fillListsItems && user.includes('## 清单补审条目') ? [...user.matchAll(/^- (java-mini:\S+:1) {2}\[checklist\]/gm)].map((m) => ({ targetKind: 'entry', targetId: m[1]!, verdict: 'no_issue' })) : []),
+      ...(opts.fillListsItems && user.includes('## 清单补审条目') ? [...user.matchAll(/（从 (java-mini:\S+?) 开始）\[checklist\]/g)].map((m) => ({ targetKind: 'entry', targetId: `${m[1]!}:1`, verdict: 'no_issue' })) : []),
     ];
+    // A checklist fill concludes per item (one itemId= line each); `fillSummaryOnly` first writes one summary.
+    const itemKeys = user.includes('## 清单补审条目') ? [...user.matchAll(/^- itemId=`([^`]+)`（从/gm)].map((m) => m[1]!) : [];
+    const summaryOnly = opts.fillSummaryOnly && !body.messages.some((m) => m.role === 'tool' && text(m).includes('scopeReviewed needs one line'));
+    const scopeOf = (files: string[]) => (itemKeys.length && !summaryOnly
+      ? [files.join(', ') || 'none', ...itemKeys.map((k) => `itemId=${k}：脚本补审，读过 ${CTRL}，没有问题`)].join('\n')
+      : files.join(', ') || 'none');
     const loose = opts.expertFindingNoFinding && expertRound > 0 ? ids.find((i) => i.path !== DAO)?.id : undefined;
     const omitted = (opts.omitCandidate && expertRound === 0) || (expertRound > 0 && (opts.expertOmitLead === 'never' || (opts.expertOmitLead === 'answer_in_gap_round' && expertRound === 1)))
       ? ids.find((i) => i.path !== DAO)?.id : undefined;
@@ -892,7 +900,7 @@ function scriptedAgent(opts: FakeAgentOptions) {
           args: {
             findings: [...findings, ...badFindings],
             reviewedTargets: [...ids.filter((i) => !(diverge && i.path === DAO && i.id.includes('#L')) && i.id !== omitted).map((i) => ({ targetKind: i.id.includes('#L') ? 'sink' : 'entry', targetId: opts.bareTargetIds && !i.id.includes('#') ? i.id.replace(/^[\w.-]+:/, '').replace('{}', '{id}') : i.id, verdict: (i.path === DAO && findings.length) || i.id === loose ? 'finding' : 'no_issue' })), ...bogus],
-            ruledOut: diverge ? ids.filter((i) => i.path === DAO && i.id.includes('#L')).map((i) => ({ targetKind: 'sink', targetId: i.id, reason: 'name 在进入 DAO 前经过白名单校验' })) : [], scopeReviewed: files.join(', ') || 'none', ...openLeads, ...verdicts,
+            ruledOut: diverge ? ids.filter((i) => i.path === DAO && i.id.includes('#L')).map((i) => ({ targetKind: 'sink', targetId: i.id, reason: 'name 在进入 DAO 前经过白名单校验' })) : [], scopeReviewed: scopeOf(files), ...openLeads, ...verdicts,
           },
         }],
       };
@@ -909,7 +917,7 @@ function scriptedAgent(opts: FakeAgentOptions) {
         args: {
           findings: [...findings, ...badFindings],
           reviewedTargets: [...ids.filter((i) => !(diverge && i.path === DAO && i.id.includes('#L')) && i.id !== omitted).map((i) => ({ targetKind: i.id.includes('#L') ? 'sink' : 'entry', targetId: i.id, verdict: (i.path === DAO && findings.length) || i.id === loose ? 'finding' : 'no_issue' })), ...bogus],
-          ruledOut: diverge ? ids.filter((i) => i.path === DAO && i.id.includes('#L')).map((i) => ({ targetKind: 'sink', targetId: i.id, reason: 'name 在进入 DAO 前经过白名单校验' })) : [], scopeReviewed: files.join(', ') || 'none', ...openLeads, ...verdicts,
+          ruledOut: diverge ? ids.filter((i) => i.path === DAO && i.id.includes('#L')).map((i) => ({ targetKind: 'sink', targetId: i.id, reason: 'name 在进入 DAO 前经过白名单校验' })) : [], scopeReviewed: scopeOf(files), ...openLeads, ...verdicts,
         },
       }],
     };

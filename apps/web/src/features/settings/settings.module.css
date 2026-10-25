@@ -22,15 +22,22 @@
 .linkBtn:disabled { color: var(--text-3); cursor: default; }
 .pickerNote { padding: 6px 10px; font-size: var(--fs-xs); color: var(--warn); border-bottom: 1px solid var(--border); }
 .pickerList { list-style: none; margin: 0; padding: 4px; max-height: 240px; overflow-y: auto; }
-.pickerItem { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; font-size: var(--fs-sm); cursor: pointer; min-width: 0; }
-.pickerItem:hover { background: var(--bg-hover); }
+.pickerRow { display: flex; align-items: center; gap: 8px; border-radius: 6px; padding-right: 6px; }
+.pickerRow:hover { background: var(--bg-hover); }
+.pickerItem { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; font-size: var(--fs-sm); cursor: pointer; min-width: 0; flex: 1; }
 .pickerOn { background: var(--accent-soft); }
+.confWrap { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.confTag { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border: 1px dashed var(--border-strong); border-radius: 999px; background: transparent; color: var(--text-3); font-size: var(--fs-xs); cursor: pointer; white-space: nowrap; }
+.confTag:hover { color: var(--text-2); border-color: var(--text-3); }
+.confOn { border-style: solid; border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+.confTag:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pickerId { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; flex: 1; }
 .pickerErr { padding: 0 6px 4px 30px; font-size: var(--fs-xs); color: var(--danger); word-break: break-all; }
 .limits { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 0 6px 6px 30px; font-size: var(--fs-xs); color: var(--text-2); }
 .limitField { display: inline-flex; align-items: center; gap: 6px; }
 .limitField input { width: 96px; height: 26px; font-size: 12px; }
 .limitBad { border-color: var(--danger); }
+.limitCheck { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .limitHint { color: var(--text-3); }
 .pickerEmpty { padding: 14px 10px; font-size: var(--fs-xs); color: var(--text-3); }
 .pickerManual { display: flex; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--border); }

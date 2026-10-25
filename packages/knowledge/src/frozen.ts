@@ -125,8 +125,9 @@ export interface LoadSkillResult { name: string; file: string; page: number; pag
 export function loadFrozenSkill(frozen: FrozenKnowledge, readable: Set<string>, artifacts: ArtifactStore, args: { name: string; file?: string; page?: number }): LoadSkillResult {
   const f = frozen.skills.find((s) => s.name === args.name);
   if (!f || !readable.has(args.name)) throw new Error(`skill "${args.name}" is not available in this session`);
-  // An empty string is how some models "omit" an optional argument.
-  const file = args.file?.trim() || f.entryFile;
+  // An empty string is how some models "omit" an optional argument. A skill with one file has nothing else to read:
+  // gpt-6-luna passed its category, its name or "index" as the file in most sessions.
+  const file = Object.keys(f.files).length === 1 ? f.entryFile : args.file?.trim() || f.entryFile;
   if (file.includes('..') || file.startsWith('/')) throw new Error('file must be a relative path inside the skill');
   const ref = f.files[file];
   if (!ref) throw new Error(`file "${file}" not found in skill "${args.name}"; files: ${Object.keys(f.files).join(', ')}`);

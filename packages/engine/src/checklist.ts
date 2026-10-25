@@ -7,7 +7,8 @@
 import { Type } from 'typebox';
 import { CodeRef, type ObligationStatus } from '@xiezhi/contracts';
 import type { AuditTool } from '@xiezhi/agent';
-import type { ChecklistItem } from '@xiezhi/knowledge';
+import { toolGrep } from '@xiezhi/context';
+import type { ChecklistItem, ChecklistLocate } from '@xiezhi/knowledge';
 import { fromJson } from '@xiezhi/store';
 import type { AuditRuntime } from './runtime.js';
 import { addObligation, settleObligation } from './obligations.js';
@@ -24,10 +25,21 @@ export const CHECK_BATCH = 8;
 export const FILL_BATCH = 4;
 /** Evidence-index lines per class: conclusions and findings. */
 const EVIDENCE_LINES = 30;
+/** `locate` hits listed per item, and how many distinct hit files a `covered` conclusion has to cite. */
+const LOCATE_HITS = 12;
+const LOCATE_FILES_REQUIRED = 3;
+/** Hits outside product code (tests, docs, generated pages, lock files) are not where an item applies. */
+/** Browser code and scripts, listed after the other code of the same pattern. */
+const FRONTEND = /(^|\/)(client|frontend|webapp|public|static|scripts?)\/|\.(tsx|jsx|vue|svelte)$/i;
+const NOT_PRODUCT = /(^|\/)(__tests__|__mocks__|tests?|spec|e2e|docs?|fixtures?)\/|\.(test|spec)\.[a-z]+$|_test\.go$|\.(md|html?|lock)$|(^|\/)(pnpm-lock|package-lock|package|composer|go)\.(json|yaml|lock|mod|sum)$/i;
 /** Classes whose units are entry points (authorization, session, cross-site, business rules) rather than sinks. */
 const ENTRY_CLASSES: ReadonlySet<string> = new Set(['authz_object', 'authz_function', 'authn', 'csrf', 'cors', 'business_logic', 'race_condition']);
 
-export interface ChecklistRow { key: string; title: string; category: string; status: ObligationStatus; detail: { skill: string; id: string; check: string; startFiles?: string[] } }
+export interface LocateHit { repo: string; path: string; line: number; text: string }
+export interface ChecklistRow {
+  key: string; title: string; category: string; status: ObligationStatus;
+  detail: { skill: string; id: string; check: string; startFiles?: string[]; locate?: ChecklistLocate; hits?: LocateHit[] };
+}
 
 /** The check runs in full audits (not incremental ones, which stay on the change; not backfills or supplements). */
 export function checklistOn(rt: AuditRuntime): boolean {
@@ -61,7 +73,7 @@ export function selectChecklist(rt: AuditRuntime): { skill: string; item: Checkl
 export function registerChecklist(rt: AuditRuntime): void {
   rt.store.tx(() => {
     for (const { skill, item } of selectChecklist(rt)) {
-      addObligation(rt, { kind: 'checklist', itemKey: `${skill}:${item.id}`, source: 'checklist', title: item.title, category: item.vulnClass, detail: { skill, id: item.id, check: item.check } });
+      addObligation(rt, { kind: 'checklist', itemKey: `${skill}:${item.id}`, source: 'checklist', title: item.title, category: item.vulnClass, detail: { skill, id: item.id, check: item.check, ...(item.locate ? { locate: item.locate } : {}) } });
     }
   });
 }
@@ -96,6 +108,45 @@ export function evidenceIndex(rt: AuditRuntime, vulnClass: string): string[] {
   ];
 }
 
+/**
+ * Where an item applies — its `locate` patterns over every target repository, de-duplicated by location,
+ * at most LOCATE_HITS. An unusable pattern yields no hits (the skill's author sees the empty list in the trajectory).
+ */
+export async function locateHits(rt: AuditRuntime, ctx: Pick<AttemptContext, 'signal' | 'stepId'>, locate: ChecklistLocate): Promise<LocateHit[]> {
+  const seen = new Set<string>();
+  const out: LocateHit[] = [];
+  for (const repo of rt.targets) {
+    for (const pattern of locate.grep) {
+      if (out.length >= LOCATE_HITS) return out;
+      try {
+        const r = await toolGrep(rt.toolContext(ctx.signal, ctx.stepId, { repo: repo.name }), { repo: repo.name, pattern, regex: true, caseSensitive: false, maxResults: 300, ...(locate.glob ? { glob: locate.glob } : {}) });
+        // Within a pattern, server code first: the built-in items check server-side controls, and browser code that
+        // builds the same headers or signatures sorts first alphabetically (apps/web before services/); demo scripts likewise.
+        const ms = r.matches.filter((m) => !m.context && !NOT_PRODUCT.test(m.path));
+        for (const m of [...ms.filter((x) => !FRONTEND.test(x.path)), ...ms.filter((x) => FRONTEND.test(x.path))]) {
+          const k = `${m.repo}:${m.path}:${m.line}`;
+          if (seen.has(k) || out.length >= LOCATE_HITS) continue;
+          seen.add(k);
+          out.push({ repo: m.repo, path: m.path, line: m.line, text: m.text.trim().slice(0, 160) });
+        }
+      } catch { /* an unusable pattern yields no hits */ }
+    }
+  }
+  return out;
+}
+
+/** The distinct files of an item's hits that a `covered` conclusion has to cite, in hit order. */
+export function requiredHitFiles(hits: LocateHit[] | undefined): string[] {
+  return [...new Set((hits ?? []).map((h) => `${h.repo}:${h.path}`))].slice(0, LOCATE_FILES_REQUIRED);
+}
+
+function hitLines(r: ChecklistRow): string[] {
+  if (!r.detail.locate) return [];
+  const hits = r.detail.hits ?? [];
+  if (!hits.length) return [`  ${P('checklist.locate_none')}`];
+  return [`  ${P('checklist.locate_heading', { n: hits.length })}`, ...hits.map((h) => `    - ${h.repo}:${h.path}:${h.line}  ${h.text}`)];
+}
+
 const SubmitChecklist = Type.Object({
   items: Type.Array(Type.Object({
     itemId: Type.String({ maxLength: 200 }),
@@ -113,7 +164,7 @@ export function checkPrompt(rt: AuditRuntime, vulnClass: string, rows: Checklist
     P('checklist.intro', { n: rows.length, vulnClass }),
     '',
     P('checklist.items_heading'),
-    ...rows.map((r) => `- itemId=\`${r.key}\` 「${r.title}」：${r.detail.check}`),
+    ...rows.flatMap((r) => [`- itemId=\`${r.key}\` 「${r.title}」：${r.detail.check}`, ...hitLines(r)]),
     '',
     P('checklist.evidence_heading'),
     ...(ev.length ? ev : [P('checklist.no_evidence')]),
@@ -124,7 +175,10 @@ export function checkPrompt(rt: AuditRuntime, vulnClass: string, rows: Checklist
 
 export async function checklistCheckStep(rt: AuditRuntime, ctx: AttemptContext, vulnClass: string, keys: string[]): Promise<StepResult> {
   const all = new Map(checklistRows(rt).map((r) => [r.key, r]));
-  const rows = keys.map((k) => all.get(k)).filter((r): r is ChecklistRow => !!r);
+  const rows = await Promise.all(keys.map((k) => all.get(k)).filter((r): r is ChecklistRow => !!r)
+    .map(async (r) => (r.detail.locate ? { ...r, detail: { ...r.detail, hits: await locateHits(rt, ctx, r.detail.locate) } } : r)));
+  const byKey = new Map(rows.map((r) => [r.key, r]));
+  const cites = (v: ChecklistVerdict, file: string) => (v.evidence ?? []).some((e) => `${e.repo || rt.targetRepo.name}:${e.path}` === file || e.path === file.slice(file.indexOf(':') + 1));
   const isFile = (f: string) => !!startFile(rt, f);
   const submit: AuditTool = {
     name: 'submit_checklist', kind: 'submit', parameters: SubmitChecklist,
@@ -136,12 +190,19 @@ export async function checklistCheckStep(rt: AuditRuntime, ctx: AttemptContext, 
         if (!all.has(v.itemId) || !keys.includes(v.itemId)) { issues.push(P('feedback.checklist.not_in_batch', { i, id: v.itemId })); continue; }
         if (seen.has(v.itemId)) issues.push(P('feedback.checklist.duplicate', { i, id: v.itemId }));
         seen.add(v.itemId);
+        const hits = byKey.get(v.itemId)?.detail.hits ?? [];
         if (v.status === 'covered') {
           if (!v.evidence?.length) issues.push(P('feedback.checklist.covered_evidence', { i }));
           for (const [j, e] of (v.evidence ?? []).entries()) issues.push(...validateCodeRef(rt, e, `items[${i}].evidence[${j}]`, true));
+          // Covered means covered where the item applies, not in one file read for another item.
+          const uncited = requiredHitFiles(hits).filter((f) => !cites(v, f));
+          if (uncited.length) issues.push(P('feedback.checklist.covered_hits', { i, files: uncited.join(', ') }));
+        }
+        if (v.status === 'not_applicable' && hits.length && !requiredHitFiles(hits).some((f) => cites(v, f))) {
+          issues.push(P('feedback.checklist.na_hits', { i }));
         }
         if (v.status === 'uncovered') {
-          if (!v.startFiles?.length) issues.push(P('feedback.checklist.uncovered_start', { i }));
+          if (!v.startFiles?.length && !hits.length) issues.push(P('feedback.checklist.uncovered_start', { i }));
           for (const f of v.startFiles ?? []) if (!isFile(f)) issues.push(P('feedback.checklist.start_not_file', { i, file: f }));
         }
       }
@@ -159,14 +220,17 @@ export async function checklistCheckStep(rt: AuditRuntime, ctx: AttemptContext, 
   const err = sessionError(outcome);
   if (err) throw err;
   // Start files as `repo:path` in a multi-repository audit (the fill session starts in that repository).
+  // An uncovered item without start files starts at its hit files.
+  const fileOf = (repo: string, path: string) => (rt.views.size > 1 ? `${repo}:${path}` : path);
   const verdicts = (outcome.submissions.submit_checklist as { items: ChecklistVerdict[] }[]).at(-1)!.items.map((v) => (v.startFiles?.length
-    ? { ...v, startFiles: v.startFiles.map((f) => { const r = startFile(rt, f)!; return rt.views.size > 1 ? `${r.repo}:${r.path}` : r.path; }) } : v));
+    ? { ...v, startFiles: v.startFiles.map((f) => { const r = startFile(rt, f)!; return fileOf(r.repo, r.path); }) }
+    : v.status === 'uncovered' ? { ...v, startFiles: [...new Set((byKey.get(v.itemId)?.detail.hits ?? []).map((h) => fileOf(h.repo, h.path)))].slice(0, 5) } : v));
   return {
     outputRef: rt.store.artifacts.putJson({ vulnClass, verdicts }),
     apply: () => {
       for (const v of verdicts) {
         settleObligation(rt, 'checklist', v.itemId, v.status, v.reason, ctx.stepId);
-        const d = all.get(v.itemId)!.detail;
+        const d = byKey.get(v.itemId)!.detail;
         rt.store.db.run(`UPDATE obligation SET detail = ? WHERE audit_id = ? AND kind = 'checklist' AND item_key = ?`,
           JSON.stringify({ ...d, ...(v.evidence?.length ? { evidence: v.evidence } : {}), ...(v.startFiles?.length ? { startFiles: v.startFiles } : {}) }), rt.auditId, v.itemId);
       }
@@ -207,5 +271,6 @@ export function fillCandidate(rt: AuditRuntime, r: ChecklistRow): Candidate {
   const first = r.detail.startFiles?.[0];
   const at = first ? startFile(rt, first) : null;
   const path = at?.path ?? first ?? '.';
-  return { id: `checklist:${r.key}`, kind: 'change', repo: at?.repo ?? rt.targetRepo.name, path, line: 1, label: `[checklist] ${r.title}：${r.detail.check.slice(0, 300)}`, score: 1 };
+  const hits = r.detail.hits?.length ? `；按 locate 搜索的命中：${r.detail.hits.map((h) => `${h.repo}:${h.path}:${h.line}`).join('、')}` : '';
+  return { id: `checklist:${r.key}`, kind: 'change', repo: at?.repo ?? rt.targetRepo.name, path, line: 1, label: `[checklist] ${r.title}：${r.detail.check.slice(0, 300)}${hits}`, score: 1 };
 }

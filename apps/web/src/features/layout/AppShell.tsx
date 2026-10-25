@@ -242,9 +242,12 @@ export function PageLayout({ children, panel, onClosePanel, panelTitle, panelKey
   useEffect(() => {
     const move = (e: MouseEvent) => { if (drag.current) setW(Math.max(320, Math.min(760, drag.current.w + drag.current.x - e.clientX))); };
     const up = () => { if (drag.current) { drag.current = null; writePref('ca.panelW', String(w)); document.body.style.userSelect = ''; } };
+    // A resize whose mouseup never reaches the page (released outside the window) left the whole page
+    // unselectable (`user-select: none` on body); losing focus ends the drag too.
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
-    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+    window.addEventListener('blur', up);
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); window.removeEventListener('blur', up); };
   }, [w]);
   const showAi = ai.open && !noAi;
   const side: 'detail' | 'ai' | null = panel && showAi ? ai.tab : panel ? 'detail' : showAi ? 'ai' : null;

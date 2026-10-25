@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildIndex, createSnapshot, Executor, loadRules, SnapshotView } from '@xiezhi/context';
 import { Store } from '@xiezhi/store';
-import { addRepository, auditableFrom, createProject, scanLocalJsBackend, scanLocalRustBackend } from '../src/index.js';
+import { addRepository, auditableFrom, createProject, languagesBySize, scanLocalJsBackend, scanLocalRustBackend } from '../src/index.js';
 import { autoAuditable, indexLanguagesFor, recordAutoAuditable } from '../src/auditable.js';
 
 describe('auditable repositories', () => {
@@ -16,6 +16,11 @@ describe('auditable repositories', () => {
     expect(auditableFrom({ typescript: 30 }, false)).toMatchObject({ auditable: false, note: expect.stringContaining('前端') });
     expect(auditableFrom({ typescript: 30 }, null)).toMatchObject({ auditable: false, note: expect.stringContaining('首次分析') });
     expect(auditableFrom({ yaml: 3, proto: 2 }, null)).toMatchObject({ auditable: false, note: expect.stringContaining('Python') });
+  });
+
+  it('lists a repository\'s languages most files first, so the main language is not hidden behind markup', () => {
+    expect(languagesBySize({ html: 84, json: 41, typescript: 558, markdown: 118, sql: 10, yaml: 10 }))
+      .toEqual(['typescript', 'markdown', 'html', 'json', 'sql', 'yaml']);
   });
 
   it('finds a server-side framework in nested package.json files, not in node_modules', () => {

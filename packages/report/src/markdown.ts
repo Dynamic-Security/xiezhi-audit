@@ -1,5 +1,6 @@
 // Deterministic Markdown rendering.
-import { CATEGORY_ZH, CONFIDENCE_ZH, HANDLING_ZH, PENDING_KIND_ZH, SOURCE_ZH, STEP_STATUS_ZH, STEP_ZH, partialReasonText, zh } from './labels.js';
+import { formatTokens } from '@xiezhi/contracts';
+import { CATEGORY_ZH, CONFIDENCE_ZH, HANDLING_ZH, PENDING_KIND_ZH, SOURCE_ZH, STEP_STATUS_ZH, partialReasonText, stepZh, zh } from './labels.js';
 import { verificationMarkdown } from './verification.js';
 import { ACCESS_LEVEL_ZH, accessVerdictZh, COVERAGE_NOTE, MISSING_KIND_ZH, OBLIGATION_KIND_ZH, OBLIGATION_SOURCE_ZH, UNCONCLUDED_REASON_ZH, unconcludedText, PENDING_ACTION_ZH, pendingOfDetail, STATIC_AUDIT_NOTE, type ReportFinding, type ReportModel } from './model.js';
 
@@ -121,10 +122,10 @@ export function renderMarkdown(m: ReportModel): string {
   out.push(`- 项目：${m.project.name}`);
   out.push(`- 审计：${m.audit.id}（场景 ${m.audit.scene}，模式 ${m.audit.mode}）`);
   out.push(`- 状态：**${STATUS_ZH[m.audit.status] ?? m.audit.status}**`);
-  if (m.audit.partialReasons.length) out.push(`- 未完成原因（按优先级）：${m.audit.partialReasons.map(partialReasonText).join(' > ')}`);
+  if (m.audit.partialReasons.length) out.push(`- ${m.audit.status === 'completed' ? '过程问题' : '未完成原因'}（按优先级）：${m.audit.partialReasons.map(partialReasonText).join(' > ')}`);
   for (const n of m.audit.notices ?? []) out.push(`- 提示：${n}`);
   if (m.audit.strategyHash) out.push(`- 冻结策略：\`${m.audit.strategyHash.slice(0, 16)}\``);
-  out.push(`- 用量：${m.audit.usage.tokens} tokens${m.audit.usage.costMicros !== null ? `，成本 ${(m.audit.usage.costMicros / 1e6).toFixed(4)}` : '，成本未知'}`);
+  out.push(`- 用量：${formatTokens(m.audit.usage.tokens)} tokens${m.audit.usage.costMicros !== null ? `，成本 ${(m.audit.usage.costMicros / 1e6).toFixed(4)}` : '，成本未知'}`);
   out.push('');
   out.push('## 审计范围与版本');
   out.push('');
@@ -219,13 +220,13 @@ export function renderMarkdown(m: ReportModel): string {
   if (m.knowledge.length) {
     out.push('## 使用的知识', '');
     out.push('| skill | 层 | 最高加载级别 | 次数 | 步骤 | tokens | 被结论引用 |', '| --- | --- | --- | --- | --- | --- | --- |');
-    for (const k of m.knowledge) out.push(`| ${k.name} | ${k.layer} | ${k.maxLevel} | ${k.reads} | ${k.steps} | ${k.tokens} | ${k.citedBy} |`);
+    for (const k of m.knowledge) out.push(`| ${k.name} | ${k.layer} | ${k.maxLevel} | ${k.reads} | ${k.steps} | ${formatTokens(k.tokens)} | ${k.citedBy} |`);
     out.push('');
   }
   if (m.trajectory?.length) {
     out.push('## 行为轨迹摘要', '');
     out.push('| 步骤 | 状态 | 耗时 | tokens | 工具调用 | Agent 说明（首条） |', '| --- | --- | --- | --- | --- | --- |');
-    for (const s of m.trajectory) out.push(`| ${zh(STEP_ZH, s.kind)}${s.lineage ? ` ${s.lineage}` : ''} | ${zh(STEP_STATUS_ZH, s.status)} | ${(s.durationMs / 1000).toFixed(1)} 秒 | ${s.tokens} | ${s.toolCalls} | ${esc(s.firstNote ?? '')} |`);
+    for (const s of m.trajectory) out.push(`| ${stepZh(s.kind, s.lineage)}${s.lineage ? ` ${s.lineage}` : ''} | ${zh(STEP_STATUS_ZH, s.status)} | ${(s.durationMs / 1000).toFixed(1)} 秒 | ${formatTokens(s.tokens)} | ${s.toolCalls} | ${esc(s.firstNote ?? '')} |`);
     out.push('');
   }
   return out.join('\n').replace(/\n{3,}/g, '\n\n') + '\n';

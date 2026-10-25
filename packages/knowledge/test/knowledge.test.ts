@@ -95,7 +95,10 @@ describe('knowledge', () => {
     expect(r.text).toContain('SecurityFilterChain');
     expect(loadFrozenSkill(frozen, hunt.readable, a, { name: 'spring-authz-method', file: '' }).file).toBe(r.file); // empty = omitted
     expect(() => loadFrozenSkill(frozen, excluded.readable, a, { name: 'spring-authz-method' })).toThrow(/not available/);
-    expect(() => loadFrozenSkill(frozen, hunt.readable, a, { name: 'spring-authz-method', file: '../x' })).toThrow();
+    // A one-file skill reads its body whatever file the model guessed (gpt-6-luna: its category, its name, "index").
+    for (const file of ['authz', 'spring-authz-method', 'index', '../x']) {
+      expect(loadFrozenSkill(frozen, hunt.readable, a, { name: 'spring-authz-method', file }).file).toBe(r.file);
+    }
     // Frozen: later disk edits do not change what the audit reads.
     writeFileSync(join(g, 'spring-authz-method.md'), 'changed');
     expect(loadFrozenSkill(frozen, hunt.readable, a, { name: 'spring-authz-method' }).text).toContain('SecurityFilterChain');

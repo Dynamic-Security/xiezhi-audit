@@ -57,6 +57,9 @@ const PINNED: Record<number, string> = {
   37: 'f8d4697f54ad8a5a16dac4746c0c7c95c16887faecb38cb8645114ac388ce488', // m18_project_rules
   38: '06aa125303ebbaff4525a449ec719f948db4507f5ba12e0fd2bf83b8afebb5e2', // m18_verification_cases
   39: '5e0759ed898cebb18c3056e0887d97f26bf25eba649102f7ea8161d68898f258', // m18_fix_suggestions
+  40: 'bb4bfe3d0d2a17851a25cf628db91ec6fc6de830905679f0dbef68b13555c1c1', // m18_question_options
+  41: '639c764eb367d7564117e55a169da08f02fbf5cc039b48e0dbd0721e51a05472', // m18_model_switches
+  42: '596132716a4780cec95716dd1f2246c34370e15d6df93952f375d55865a44d18', // m18_message_attachments
 };
 
 // Columns whose CHECK list comes from a contracts closed set, after all migrations.
@@ -180,7 +183,7 @@ describe('migrations', () => {
     db.run(`INSERT INTO event (audit_id, seq, type, ts, payload) VALUES ('a1', 1, 'x', ?, '{}')`, NOW);
     expect(() => seed(db, '2', 'hunt', 'CONTENT_FILTERED')).toThrow(/CHECK constraint failed/);
 
-    expect(db.migrate()).toEqual([26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]);
+    expect(db.migrate()).toEqual([26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42]);
     expect(db.get("SELECT checksum FROM schema_migrations WHERE version = 1")).toEqual({ checksum: sha256Hex(M1_PRE_M12_13) });
     expect(db.get("SELECT error_class, strategy_frozen FROM audit WHERE id = 'a1'")).toEqual({ error_class: 'PROVIDER_TRANSIENT', strategy_frozen: '{"x":1}' });
     expect(db.get("SELECT count(*) AS n FROM step_attempt WHERE step_id = 's1'")).toEqual({ n: 1 });
@@ -204,7 +207,7 @@ describe('migrations', () => {
     const db = legacyDb(tmpDb(), M1_PRE_M12_13, migrationChecksum(M1), 25);
     seed(db, '1');
     expect(() => seed(db, '2', 'hunt', 'CONTENT_FILTERED')).toThrow(/CHECK constraint failed/);
-    expect(db.migrate()).toEqual([26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]);
+    expect(db.migrate()).toEqual([26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42]);
     expect(db.get("SELECT error_class FROM step WHERE id = 's1'")).toEqual({ error_class: 'PROVIDER_TRANSIENT' });
     expectCurrent(db);
   });

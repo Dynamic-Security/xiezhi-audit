@@ -48,7 +48,7 @@ export function AuditConversation({ auditId }: { auditId: string }) {
   return (
     <ConversationThread key={cid ?? 'draft'} cid={cid} compact ensureConversation={ensure} onBeforeSend={before}
       context={{ kind: 'audit', id: auditId, label: `${a.data.projectName} · ${a.data.title}`, valid: true }}
-      footer={<AuditLiveCard auditId={auditId} showInterventions />}
+      footer={<AuditLiveCard auditId={auditId} showInterventions />} footerAuditId={auditId}
       placeholder={PLACEHOLDER[steer]}
       suggestions={live ? ['现在进展如何？', '目前有哪些疑点还没有结论？', '为什么这么安排审计重点？'] : ['总结这次审计的结论和未完成的部分', '哪些漏洞还需要人工确认？为什么？']}
       composerTop={live ? (

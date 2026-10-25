@@ -30,12 +30,18 @@ export function rerunAudit(store: Store, knownModels: Set<string>, sourceId: str
     const incremental = src.scene === 'incremental';
     // every repository of the source, not only its first target (a multi-repository audit was rerun on
     // one repository); each keeps its version.
-    const rows = store.all<{ repository_id: string; requested_ref: string | null; role_in_audit: string }>(
-      `SELECT repository_id, requested_ref, role_in_audit FROM audit_repository WHERE audit_id = ? AND role_in_audit IN ('target', 'related')`, src.id);
+    const rows = store.all<{ repository_id: string; requested_ref: string | null; role_in_audit: string; base_snapshot_id: string | null; base_requested_ref: string | null }>(
+      `SELECT repository_id, requested_ref, role_in_audit, base_snapshot_id, base_requested_ref FROM audit_repository WHERE audit_id = ? AND role_in_audit IN ('target', 'related')`, src.id);
     const targets = rows.filter((r) => r.role_in_audit === 'target').map((r) => r.repository_id);
     const related = rows.filter((r) => r.role_in_audit === 'related').map((r) => r.repository_id);
     const refs = Object.fromEntries(rows.filter((r) => r.requested_ref).map((r) => [r.repository_id, r.requested_ref!]));
-    const multi = src.mode === 'multi' && !incremental;
+    const multi = src.mode === 'multi';
+    // A multi-repository incremental rerun compares each target against the same baseline (ref or snapshot;
+    // none = audited in full again, not against the source audit that has finished since).
+    const targetRows = rows.filter((r) => r.role_in_audit === 'target');
+    const baseRefs = Object.fromEntries(targetRows.filter((r) => r.base_requested_ref).map((r) => [r.repository_id, r.base_requested_ref!]));
+    const baseSnapshots = Object.fromEntries(targetRows.filter((r) => !r.base_requested_ref).map((r) => [r.repository_id, r.base_snapshot_id]));
+    const multiBase = multi && incremental ? { ...(Object.keys(baseRefs).length ? { baseRefs } : {}), ...(Object.keys(baseSnapshots).length ? { baseSnapshots } : {}) } : {};
     id = createAudit(store, knownModels, {
       projectId: src.project_id, scene: incremental ? 'incremental' : 'full', origin,
       ...(multi ? { mode: 'multi' as const, repositories: targets } : { repository: repo.repository_id, ...(related.length ? { related } : {}) }),
@@ -46,8 +52,9 @@ export function rerunAudit(store: Store, knownModels: Set<string>, sourceId: str
       // `ref` is the single target's (in a multi-repository audit it would apply to every target; `refs` has each).
       ...(!multi && repo.requested_ref ? { ref: repo.requested_ref } : {}),
       // Same baseline as the source: the same ref, or the same baseline audit.
-      ...(incremental && repo.base_requested_ref ? { baseRef: repo.base_requested_ref } : {}),
-      ...(incremental && !repo.base_requested_ref && src.base_audit_id ? { baseAuditId: src.base_audit_id } : {}),
+      ...multiBase,
+      ...(incremental && !multi && repo.base_requested_ref ? { baseRef: repo.base_requested_ref } : {}),
+      ...(incremental && !multi && !repo.base_requested_ref && src.base_audit_id ? { baseAuditId: src.base_audit_id } : {}),
     });
     if (!incremental) store.update('audit', { id }, { base_audit_id: src.id });
     // The same strategy keeps the source's layer of each value. As a task override everything counted as

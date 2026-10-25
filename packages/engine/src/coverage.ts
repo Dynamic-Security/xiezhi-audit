@@ -38,6 +38,25 @@ export function ensureCoverageItems(rt: AuditRuntime, only?: ReadonlySet<string>
   return n;
 }
 
+/**
+ * Incremental: only the impact set is in scope for coverage; outside it everything is not_covered.
+ * A full-scan fallback covers its repository like a full audit (per target); undefined = everything.
+ */
+export function incrementalCoverageTargets(rt: AuditRuntime): Set<string> | undefined {
+  const impacts = rt.impacts();
+  if (rt.targets.every((t) => impacts.get(t.name)?.mode === 'full_scan')) return undefined;
+  const inScope = scopePredicate(rt.strategy.scope.include, rt.strategy.scope.exclude);
+  const out = new Set<string>();
+  for (const t of rt.targets) {
+    const impact = impacts.get(t.name);
+    if (!impact) continue;
+    const idx = rt.indexes.get(t.name);
+    if (impact.mode !== 'full_scan') for (const id of [...impact.affectedEntrypoints, ...impact.affectedSinks]) out.add(id);
+    else if (idx) for (const c of coverageTargets(idx, inScope)) out.add(c.targetId);
+  }
+  return out;
+}
+
 function readEnough(rt: AuditRuntime, item: ItemRow): boolean {
   const repo = rt.repos.find((r) => r.id === item.repository_id);
   if (!repo) return false;

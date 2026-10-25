@@ -210,8 +210,16 @@ export function fieldDescriptions(): PromptDef[] {
     for (const v of s.anyOf ?? []) walk(v, name, path);
   };
   for (const [name, v] of Object.entries(Contracts).sort(([a], [b]) => a.localeCompare(b))) if (/^Submit[A-Z]/.test(name)) walk(v, name, '');
-  const seen = new Set<string>();
-  return out.filter((d) => (seen.has(d.id) ? false : (seen.add(d.id), true)));
+  // Shared sub-schemas repeat the same description in every schema that embeds them (the repository name
+  // alone 42 times); one entry per text, its description naming every field that uses it.
+  const byText = new Map<string, PromptDef[]>();
+  for (const d of out) byText.set(d.text, [...(byText.get(d.text) ?? []).filter((x) => x.id !== d.id), d]);
+  return [...byText.values()].map((ds) => {
+    const first = ds[0]!;
+    if (ds.length === 1) return first;
+    const fields = ds.map((d) => d.title.replace(/^字段：/, ''));
+    return { ...first, title: `${first.title}（共 ${ds.length} 处）`, description: `提交工具参数中 ${ds.length} 个字段共用的说明（contracts）：${fields.join('、')}。` };
+  });
 }
 
 export interface PromptLayerView { text: string; updatedAt: string | null; valid: boolean; issues: string[]; defaultChanged: boolean }

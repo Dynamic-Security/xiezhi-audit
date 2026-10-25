@@ -109,3 +109,69 @@ describe('provider form probe and check', () => {
     expect(bodies.some((b) => b.includes(KEY) || b.includes('sk-form-key-0000000000'))).toBe(false);
   });
 });
+
+describe('deleting a provider still named by model settings', () => {
+  const add = (id: string) => api('POST', '/api/v1/settings/model-providers', { id, api: 'openai-completions', baseUrl: model.url, models: [{ id: 'm1' }, { id: 'm2' }] });
+  const settings = async () => (await api('GET', '/api/v1/settings/models')).json;
+  const putModels = async (patch: Record<string, unknown>) => {
+    const cur = await settings();
+    const r = await api('PUT', '/api/v1/settings/models', { defaultModel: cur.defaultModel, stageModels: cur.stageModels, fallbackModel: cur.fallbackModel, confidentialModels: cur.confidentialModels, ...patch, revision: cur.revision });
+    expect(r.status).toBe(200);
+  };
+
+  it('deletes an unreferenced provider', async () => {
+    expect((await add('spare')).status).toBe(201);
+    const list = (await api('GET', '/api/v1/settings/model-providers')).json;
+    expect(list.find((p: { id: string }) => p.id === 'spare').references).toEqual([]);
+    const r = await api('DELETE', '/api/v1/settings/model-providers/spare');
+    expect(r).toMatchObject({ status: 200, json: { cleared: [] } });
+    expect((await api('GET', '/api/v1/settings/model-providers')).json.map((p: { id: string }) => p.id)).toEqual(['gw']);
+  });
+
+  it('refuses a provider used only as the fallback model, naming it, and clears it when asked', async () => {
+    await add('fb');
+    await putModels({ fallbackModel: { provider: 'fb', model: 'm2' } });
+    const list = (await api('GET', '/api/v1/settings/model-providers')).json;
+    expect(list.find((p: { id: string }) => p.id === 'fb').references).toEqual([{ setting: 'fallbackModel', label: '备用模型', model: 'fb/m2' }]);
+    const r = await api('DELETE', '/api/v1/settings/model-providers/fb');
+    expect(r.status).toBe(409);
+    expect(r.json.error).toMatchObject({ code: 'PROVIDER_IN_USE', hint: expect.stringContaining('备用模型'), details: { references: [{ setting: 'fallbackModel', model: 'fb/m2' }] } });
+    expect((await settings()).fallbackModel).toMatchObject({ provider: 'fb' });
+    const ok = await api('DELETE', '/api/v1/settings/model-providers/fb?clearReferences=1');
+    expect(ok).toMatchObject({ status: 200, json: { cleared: [{ setting: 'fallbackModel', label: '备用模型', model: 'fb/m2' }] } });
+    const s = await settings();
+    expect(s.fallbackModel).toBeNull();
+    expect(s.defaultModel).toMatchObject({ provider: 'gw', model: 'm1' });
+  });
+
+  it('clears per-stage, confidential and cross-check references, keeping the others', async () => {
+    await add('st');
+    await putModels({ stageModels: { hunt: { provider: 'st', model: 'm1' }, chat: { provider: 'gw', model: 'm1' }, triage: null }, confidentialModels: ['st/m1', 'gw/m1'] });
+    const sd = (await api('GET', '/api/v1/settings/scene-defaults/full')).json;
+    const group = { enabled: true, models: [{ provider: 'gw', model: 'm1' }, { provider: 'st', model: 'm2' }], stages: { hunt: true } };
+    expect((await api('PUT', '/api/v1/settings/scene-defaults/full', { override: { ...sd.override, multiModel: group }, revision: sd.revision })).status).toBe(200);
+
+    const r = await api('DELETE', '/api/v1/settings/model-providers/st');
+    expect(r.status).toBe(409);
+    expect(r.json.error.details.references.map((x: { setting: string }) => x.setting)).toEqual(['stageModels.hunt', 'confidentialModels', 'sceneDefaults.full.multiModel']);
+    expect(r.json.error.hint).toContain('各阶段模型 · 领域审计');
+
+    expect((await api('DELETE', '/api/v1/settings/model-providers/st?clearReferences=1')).status).toBe(200);
+    const s = await settings();
+    expect(s.stageModels).toEqual({ chat: { provider: 'gw', model: 'm1' }, triage: null });
+    expect(s.confidentialModels).toEqual(['gw/m1']);
+    const full = (await api('GET', '/api/v1/settings/scene-defaults/full')).json;
+    expect(full.override.multiModel).toMatchObject({ enabled: false, models: [{ provider: 'gw', model: 'm1' }] });
+    expect(JSON.stringify([s, full.override])).not.toContain('"st"');
+  });
+
+  it('refuses the provider of the default model until cleared, then leaves no default', async () => {
+    await putModels({ stageModels: {}, confidentialModels: [] });
+    const refs = (await api('DELETE', '/api/v1/settings/model-providers/gw')).json.error.details.references;
+    expect(refs).toEqual([{ setting: 'defaultModel', label: '默认模型', model: 'gw/m1' }, { setting: 'sceneDefaults.full.multiModel', label: '任务创建默认值 · 全量审计 · 多模型交叉', model: 'gw/m1' }]);
+    expect((await api('DELETE', '/api/v1/settings/model-providers/gw?clearReferences=1')).status).toBe(200);
+    expect((await settings()).defaultModel).toBeNull();
+    expect((await api('GET', '/api/v1/settings/scene-defaults/full')).json.override.multiModel.models).toEqual([]);
+    expect((await api('DELETE', '/api/v1/settings/model-providers/gw')).status).toBe(404);
+  });
+});

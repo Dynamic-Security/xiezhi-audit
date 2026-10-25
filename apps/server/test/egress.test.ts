@@ -4,7 +4,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { defaultAppConfig, newId, type EgressDto } from '@xiezhi/contracts';
+import { defaultAppConfig, newId, type EgressDto, type ProviderDto } from '@xiezhi/contracts';
 import { Store } from '@xiezhi/store';
 import { startServer, type RunningServer } from '@xiezhi/server';
 import { startFakeOpenAI, type FakeServer } from '../../../packages/agent/test/fake-openai.js';
@@ -79,5 +79,27 @@ describe('outbound records API', () => {
     expect(ms.confidentialModels).toEqual(['gw/m1']);
     expect((await put([])).status).toBe(200);
     expect((await api('GET', '/api/v1/settings/models')).json.confidentialModels).toEqual([]);
+  });
+
+  it('the provider form sets confidential per model, kept in confidentialModels', async () => {
+    const models = async () => (await api('GET', '/api/v1/settings/models')).json.confidentialModels as string[];
+    const providers = async () => (await api('GET', '/api/v1/settings/model-providers')).json as ProviderDto[];
+    expect((await api('POST', '/api/v1/settings/model-providers', { id: 'gw2', api: 'openai-completions', baseUrl: model.url, models: [{ id: 'a', confidential: true }, { id: 'b' }] })).status).toBe(201);
+    expect(await models()).toEqual(['gw2/a']);
+    expect((await api('PATCH', '/api/v1/settings/model-providers/gw', { models: [{ id: 'm1', confidential: true }] })).status).toBe(200);
+    expect(await models()).toEqual(['gw2/a', 'gw/m1']);
+    const gw = (await providers()).find((p) => p.id === 'gw')!;
+    expect(gw.models).toEqual([{ id: 'm1', confidential: true }]);
+    // Not stored on the model entry itself.
+    const saved = JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')) as { modelProviders: { id: string; models: unknown[] }[] };
+    expect(saved.modelProviders.find((p) => p.id === 'gw')!.models).toEqual([{ id: 'm1' }]);
+    // Unflagged or dropped models leave the list; other providers' entries stay; a patch without models keeps them.
+    expect((await api('PATCH', '/api/v1/settings/model-providers/gw2', { models: [{ id: 'b' }] })).status).toBe(200);
+    expect(await models()).toEqual(['gw/m1']);
+    expect((await api('PATCH', '/api/v1/settings/model-providers/gw', { baseUrl: model.url })).status).toBe(200);
+    expect(await models()).toEqual(['gw/m1']);
+    expect((await api('PATCH', '/api/v1/settings/model-providers/gw', { models: [{ id: 'm1' }] })).status).toBe(200);
+    expect(await models()).toEqual([]);
+    expect((await api('DELETE', '/api/v1/settings/model-providers/gw2')).status).toBe(200);
   });
 });

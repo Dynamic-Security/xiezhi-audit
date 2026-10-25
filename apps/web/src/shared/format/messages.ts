@@ -1,5 +1,6 @@
 // zh-CN copy in one place. Formatting uses Intl.
 import type { VulnCategory } from '@xiezhi/contracts';
+import { formatTokens } from './tokens';
 
 export const SEVERITY: Record<string, string> = { critical: '严重', high: '高危', medium: '中危', low: '低危', info: '信息' };
 export const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'] as const;
@@ -18,14 +19,26 @@ export const PHASE: Record<string, string> = {
 };
 export const PHASE_ORDER = ['queued', 'preparing', 'analyzing', 'verifying', 'reporting', 'done'] as const;
 export const STEP_KIND: Record<string, string> = {
-  plan: '生成计划', snapshot: '固定代码版本', index: '结构索引', triage: '初筛', hunt: '深入审计', challenge: '对抗复核', reconcile: '归并对账',
+  plan: '生成计划', snapshot: '固定代码版本', index: '结构索引', triage: '初筛', hunt: '领域审计', challenge: '对抗复核', reconcile: '归并对账',
   report: '报告与闸门', finalize: '收尾', review: '独立复核', scope: '影响范围', profile: '画像与威胁建模', decide: '深度探索决策', 'threat-model': '风险假设（威胁建模）',
   'verify-fix': '定向复验', 'coverage-gap': '覆盖补审', 'hunt-risk': '风险研判',
 };
+/**
+ * A step's label. The hunt kind also runs coverage completion (GAP-*), deep exploration (R1…) and the retry of
+ * hypothesis verification (HYP-*), so its label follows the lineage like contracts `STEP_ROLES`; others by kind.
+ */
+export function stepLabel(kind: string, lineage?: string | null): string {
+  if (kind === 'hunt' && lineage) {
+    if (/^GAP/.test(lineage)) return '覆盖补审';
+    if (/^R\d/.test(lineage)) return '深度探索';
+    if (/^HYP/.test(lineage)) return '风险假设验证';
+  }
+  return STEP_KIND[kind] ?? kind;
+}
 export const REVERIFY_VERDICT: Record<string, string> = { fixed: '已修复（经验证）', still_present: '仍存在', partially_fixed: '修复不完整', undetermined: '待确认' };
 /** Budget stages, in pipeline order. */
 export const BUDGET_STAGE: Record<string, string> = {
-  prepare: '计划与画像', triage: '初筛', hunt: '深入审计', gap: '覆盖补齐', hypotheses: '风险假设', explore: '深度探索', merge: '归并', review: '对抗复核', verify: '复验',
+  prepare: '计划与画像', hypotheses: '风险假设', triage: '初筛', hunt: '领域审计', gap: '覆盖补齐', merge: '归并', explore: '深度探索', review: '对抗复核', verify: '复验',
 };
 export const ON_SHORTFALL: Record<string, string> = { declare: '只声明缺口', gap_fill: '补齐：再追查未覆盖的候选' };
 export const SCENE: Record<string, string> = { full: '全量', incremental: '增量', risk_hunt: '风险排查', reverify: '复验' };
@@ -36,6 +49,7 @@ export const IMPACT_REASON: Record<string, string> = {
   too_many_changes: '变更文件占比超过阈值',
   parse_gap_in_changed_files: '变更文件中解析失败的比例过高',
   unresolved_edges_dominant: '无法解析的调用多于可解析的调用',
+  no_baseline: '没有已完成的审计，也没有指定基线：按全量审计',
 };
 export const STEP_STATUS: Record<string, string> = {
   pending: '等待', ready: '就绪', blocked_budget: '预算不足', running: '进行中', retry_wait: '等待重试', succeeded: '完成', failed: '失败',
@@ -46,6 +60,8 @@ export const PARTIAL_REASON: Record<string, string> = {
   OUTPUT_CONTRACT_FAILED: '模型输出不合规', MODEL_UNAVAILABLE: '模型不可用', ROUND_LIMIT_REACHED: '达到轮次上限', CONTEXT_REPO_MISSING: '缺少上下文仓库',
   INDEX_DEGRADED: '结构索引降级', PENDING_QUESTIONS: '有未回答的提问', USER_SKIPPED: '用户跳过部分内容', COVERAGE_GAP: '覆盖未达标',
 };
+/** A completed audit's reasons are process issues; only a partial one's say why it is incomplete. */
+export const reasonsLabel = (status: string): string => (status === 'completed' ? '过程问题' : '未完成原因');
 export const EVENT_LABEL: Record<string, string> = {
   'audit.status_changed': '审计状态', 'step.status_changed': '步骤', 'step.attempt_started': '开始尝试', 'plan.generated': '计划已生成', 'plan.confirmed': '计划已确认',
   'session.started': '会话开始', 'session.paused': '会话暂停', 'session.resumed': '会话继续', 'session.turn': '回合', 'agent.note': 'Agent 说明', 'session.compacted': '上下文压缩', 'session.ended': '会话结束', 'tool.called': '调用工具', 'tool.result': '工具结果',
@@ -170,6 +186,12 @@ export function gateCheckText(c: { name: string; ok: boolean; detail: string }):
   const n = (c.detail.match(/\d+/g) ?? []).map(Number);
   switch (c.name) {
     case 'finding_set': return c.ok ? '已生成归并后的发现' : '没有归并后的发现';
+    // "N mainline step(s) not run[, every step failed in <stages>]".
+    case 'mainline': {
+      if (c.ok) return '主线已跑通';
+      const parts = [n[0] ? `${n[0]} 个追查步骤未运行` : '', c.detail.includes('every step failed') ? '有追查阶段的步骤全部失败' : ''].filter(Boolean);
+      return `主线未跑通：${parts.join('，') || '有发现未归并或复验目标没有结论'}`;
+    }
     case 'verdicts': return `${n[0] ?? 0}/${n[1] ?? 0} 个漏洞已有复验结论`;
     // "N failed step(s), M only noted" — tolerated failures are notices, not reasons.
     case 'steps': return n[0] ? `${n[0]} 个步骤失败${n.length > 1 ? `（其中 ${n[1]} 个只作提示）` : ''}` : '没有失败的步骤';
@@ -197,14 +219,16 @@ export function cacheHitText(input: number, cacheRead: number): string {
 }
 
 const nf = new Intl.NumberFormat('zh-CN');
-const cf = new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 });
 const dtf = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 const tf = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const rtf = new Intl.RelativeTimeFormat('zh-CN', { numeric: 'auto' });
 
 export const fmt = {
   n: (v: number) => nf.format(v),
-  compact: (v: number) => cf.format(v),
+  /** Token counts are shown in millions everywhere: “119.3M”. */
+  tokens: formatTokens,
+  /** A token range for a narrow tile: “36–68M”, whole millions from 10M up so it does not wrap. */
+  tokensRange: (a: number, b: number) => (b >= 1e7 ? `${Math.round(a / 1e6)}–${Math.round(b / 1e6)}M` : `${formatTokens(a).replace(/M$/, '')}–${formatTokens(b)}`),
   date: (iso: string | null | undefined) => (iso ? dtf.format(new Date(iso)) : '—'),
   time: (iso: string | null | undefined) => (iso ? tf.format(new Date(iso)) : '—'),
   ago: (iso: string | null | undefined) => {

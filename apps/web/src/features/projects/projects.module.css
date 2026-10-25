@@ -2,6 +2,12 @@
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .stat { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; background: var(--bg-elevated); }
 .statNum { font-size: 24px; font-weight: 650; letter-spacing: -.02em; }
+.statLink { color: inherit; text-decoration: none; transition: background .12s, border-color .12s; }
+.statLink:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+.statLink:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.rowLink { color: inherit; text-decoration: none; margin: -4px -8px; padding: 4px 8px; border-radius: var(--radius); }
+.rowLink:hover { background: var(--bg-hover); }
+.rowLink:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .statLabel { color: var(--text-3); font-size: var(--fs-xs); margin-top: 2px; }
 .twoCol { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .twoCol { grid-template-columns: 1fr; } }

@@ -73,3 +73,17 @@ describe('model settings', () => {
     expect(eff.multiModel.models[1]).toEqual({ ...M2, thinking: 'low' });
   });
 });
+
+describe('external tool paths in general settings', () => {
+  it('sets a language server path, clears it with null, rejects a relative path', async () => {
+    let g = (await api('GET', '/api/v1/settings/general')).json;
+    expect(g.tools).toEqual({});
+    const ts = '/opt/lsp/bin/typescript-language-server';
+    expect((await api('PATCH', '/api/v1/settings/general', { revision: g.revision, tools: { tsLspPath: ts, nodePath: '/opt/node/bin/node' } })).status).toBe(200);
+    g = (await api('GET', '/api/v1/settings/general')).json;
+    expect(g.tools).toEqual({ tsLspPath: ts, nodePath: '/opt/node/bin/node' });
+    expect((await api('PATCH', '/api/v1/settings/general', { revision: g.revision, tools: { tsLspPath: 'bin/tls' } })).status).toBe(400);
+    expect((await api('PATCH', '/api/v1/settings/general', { revision: g.revision, tools: { tsLspPath: null } })).status).toBe(200);
+    expect((await api('GET', '/api/v1/settings/general')).json.tools).toEqual({ nodePath: '/opt/node/bin/node' });
+  });
+});

@@ -76,6 +76,16 @@ describe('contracts and clients', () => {
     });
     expect(fmt(cs)).toEqual(['consumes http {"method":"PUT","pathTemplate":"/api/cart"} literal']);
   });
+  it('tests and e2e scripts are no callers: only the application\'s own call is a connection', async () => {
+    const call = (p: string) => `export async function f() { return fetch("${p}", { method: "POST" }); }\n`;
+    const cs = await conns('web', {
+      'src/api.ts': call('/api/orders'),
+      'src/__tests__/server.test.ts': call('/api/config'),
+      'scripts/run-web-local-e2e.mjs': call('/withdrawals/validate'),
+      'e2e/login.spec.ts': call('/api/login'),
+    });
+    expect(fmt(cs)).toEqual(['consumes http {"method":"POST","pathTemplate":"/api/orders"} literal']);
+  });
   it('matching: several providers make the match inferred; unknown hosts stay unmatched', () => {
     const c = (repo: string, side: 'provides' | 'consumes', key: Connection['key'], hint?: string): Connection => ({ connId: `${repo}-${side}-${JSON.stringify(key)}`, repo, side, kind: 'http', key, ...(hint ? { serviceHint: hint } : {}), site: { path: 'x', line: 1 }, ruleId: 'test', extraction: 'literal' });
     const repos: RepoNames[] = [{ repo: 'a', appNames: [] }, { repo: 'b', appNames: [] }, { repo: 'web', appNames: [] }];
@@ -85,6 +95,19 @@ describe('contracts and clients', () => {
     ], repos);
     expect(r.matches.filter((m) => m.provider).map((m) => m.confidence)).toEqual(['inferred', 'inferred']);
     expect(r.matches.find((m) => !m.provider)).toMatchObject({ providerRepo: null, confidence: 'inferred' });
+  });
+  it('matching: a call its own repository serves (a monorepo frontend and gateway) is no edge and no missing service', () => {
+    const c = (repo: string, side: 'provides' | 'consumes', key: Connection['key'], hint?: string): Connection => ({ connId: `${repo}-${side}-${JSON.stringify(key)}`, repo, side, kind: 'http', key, ...(hint ? { serviceHint: hint } : {}), site: { path: 'x', line: 1 }, ruleId: 'test', extraction: 'literal' });
+    const r = matchConnections([
+      c('mono', 'provides', { method: 'POST', pathTemplate: '/api/v1/orders' }),
+      c('mono', 'consumes', { method: 'POST', pathTemplate: '/api/v1/orders' }),
+      c('mono', 'consumes', { method: 'GET', pathTemplate: '/api/v1/prices' }),
+      c('mono', 'consumes', { method: 'POST', pathTemplate: '/api/v1/orders' }, 'order-service'),
+      c('mono', 'consumes', { method: 'POST', pathTemplate: '/api/v1/orders' }, 'payments.example.com'),
+    ], [{ repo: 'mono', appNames: [] }]);
+    // Only the unserved path and the call addressed to a domain name stay unmatched.
+    expect(r.matches.map((m) => m.consumer)).toEqual(['mono-consumes-{"method":"GET","pathTemplate":"/api/v1/prices"}', 'mono-consumes-{"method":"POST","pathTemplate":"/api/v1/orders"}']);
+    expect(r.matches).toHaveLength(2);
   });
 });
 

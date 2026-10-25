@@ -25,6 +25,18 @@ import { useAiScope } from '../assistant/ai';
 
 type Tab = NonNullable<ProjectSearch['tab']>;
 
+// Severity counts on the overview exclude false positives; the linked list uses the same filter.
+const NOT_FALSE_POSITIVE = ['pending', 'confirmed'];
+
+// Overview stat card: clicking opens the matching tab (with filters) of this project.
+function StatLink({ pid, search, num, label }: { pid: string; search: ProjectSearch; num: number | string; label: string }) {
+  return (
+    <Link to="/projects/$pid" params={{ pid }} search={search} className={cx(P.stat, P.statLink)}>
+      <div className={P.statNum}>{num}</div><div className={P.statLabel}>{label}</div>
+    </Link>
+  );
+}
+
 function Overview({ pid }: { pid: string }) {
   const project = useProject(pid);
   const vulns = useVulns(pid, {});
@@ -36,10 +48,10 @@ function Overview({ pid }: { pid: string }) {
   return (
     <>
       <div className={P.stats}>
-        <div className={P.stat}><div className={P.statNum}>{project.data?.repoCount ?? '—'}</div><div className={P.statLabel}>仓库</div></div>
-        <div className={P.stat}><div className={P.statNum}>{audits.data?.totalEstimate ?? '—'}</div><div className={P.statLabel}>审计</div></div>
-        <div className={P.stat}><div className={P.statNum}>{all.length}</div><div className={P.statLabel}>漏洞（含已处理）</div></div>
-        <div className={P.stat}><div className={P.statNum}>{all.filter((v) => v.confirmStatus === 'pending').length}</div><div className={P.statLabel}>待确认</div></div>
+        <StatLink pid={pid} search={{ tab: 'repos' }} num={project.data?.repoCount ?? '—'} label="仓库" />
+        <StatLink pid={pid} search={{ tab: 'audits' }} num={audits.data?.totalEstimate ?? '—'} label="审计" />
+        <StatLink pid={pid} search={{ tab: 'vulns' }} num={all.length} label="漏洞（含已处理）" />
+        <StatLink pid={pid} search={{ tab: 'vulns', confirmation: ['pending'] }} num={all.filter((v) => v.confirmStatus === 'pending').length} label="待确认" />
       </div>
       {project.data && <InternalTrust project={project.data} />}
       <ReviewTime pid={pid} />
@@ -47,17 +59,19 @@ function Overview({ pid }: { pid: string }) {
         <Section title="严重度分布">
           <div className={cx(ui.card, ui.cardPad, ui.stack)}>
             {bySev.map(({ s, n }) => (
-              <div key={s} className={P.bar}>
+              <Link key={s} to="/projects/$pid" params={{ pid }} search={{ tab: 'vulns', severity: [s], confirmation: NOT_FALSE_POSITIVE }} className={cx(P.bar, P.rowLink)}>
                 <span className={P.barLabel}>{SEVERITY[s]}</span>
                 <div className={P.barTrack}><div className={P.barFill} style={{ width: `${(n / max) * 100}%`, background: `var(--sev-${s})` }} /></div>
                 <span className={P.barNum}>{n}</span>
-              </div>
+              </Link>
             ))}
           </div>
         </Section>
         <Section title="跨审计状态">
           <div className={cx(ui.card, ui.cardPad, ui.stack)}>
-            {byLife.map(({ k, n }) => <div key={k} className={ui.spread}><span className={ui.muted}>{LIFECYCLE[k]}</span><b>{n}</b></div>)}
+            {byLife.map(({ k, n }) => (
+              <Link key={k} to="/projects/$pid" params={{ pid }} search={{ tab: 'vulns', lifecycle: [k] }} className={cx(ui.spread, P.rowLink)}><span className={ui.muted}>{LIFECYCLE[k]}</span><b>{n}</b></Link>
+            ))}
           </div>
         </Section>
       </div>
@@ -69,7 +83,7 @@ function Overview({ pid }: { pid: string }) {
                 <span className={P.tlDot} />
                 <div className={ui.grow}>
                   <div className={ui.row}><b className={ui.ellipsis}>{a.title}</b><AuditStatusBadge status={a.status} /></div>
-                  <div className={ui.faint} style={{ fontSize: 12 }}>{fmt.date(a.createdAt)} · {a.findingCount} 个发现 · {fmt.compact(a.budget.consumed.tokens)} tokens</div>
+                  <div className={ui.faint} style={{ fontSize: 12 }}>{fmt.date(a.createdAt)} · {a.findingCount} 个发现 · {fmt.tokens(a.budget.consumed.tokens)} tokens</div>
                 </div>
               </Link>
             ))}
@@ -132,7 +146,7 @@ function AnalysisBar({ pid, hasRepos }: { pid: string; hasRepos: boolean }) {
         <div className={ui.faint} style={{ fontSize: 13 }}>
           {running ? <><Spinner /> 正在分析仓库角色…</> : a
             ? <>上次分析 {fmt.date(a.endedAt ?? a.startedAt)} · <Badge tone={a.status === 'succeeded' ? 'ok' : a.status === 'failed' ? 'danger' : 'warn'}>{ANALYSIS_STATUS[a.status] ?? a.status}</Badge>
-              {a.reason && ` · ${REASON[a.reason] ?? a.reason}`}{a.model && ` · ${a.model} · ${fmt.compact(a.tokens.input + a.tokens.output)} tokens`}</>
+              {a.reason && ` · ${REASON[a.reason] ?? a.reason}`}{a.model && ` · ${a.model} · ${fmt.tokens(a.tokens.input + a.tokens.output)} tokens`}</>
             : 'AI 仓库分析：识别每个仓库的角色（网关、鉴权、业务、接口定义、前端、共享库），用于计划、拓扑和知识筛选。'}
         </div>
         <div className={ui.row}>
@@ -202,7 +216,9 @@ function RoleCell({ repo, analyzed }: { repo: RepoDto; analyzed: boolean }) {
       </select>
       <div className={ui.faint} style={{ fontSize: 11, marginTop: 2, whiteSpace: 'nowrap' }}>
         {repo.roleSource === 'user' ? <>人工修正 · <button style={{ background: 'none', border: 0, padding: 0, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }} onClick={() => void set('auto')}>改回 AI</button></> : repo.aiRoles.length ? 'AI 识别' : analyzed ? 'AI 未能判定角色' : '未分析'}
-        {ai.length > 0 && ` · AI：${ai.map((r) => `${ROLE[r.role] ?? r.role} ${r.confidence.toFixed(2)}`).join('、')}`}
+        {/* Next to the AI's main role (the select) these are its other roles: “AI：前端 0.86” read as the verdict on a
+            business monorepo. After a manual change they are what the AI said. */}
+        {ai.length > 0 && ` · ${repo.roleSource === 'user' ? 'AI' : '兼有'}：${ai.map((r) => `${ROLE[r.role] ?? r.role} ${r.confidence.toFixed(2)}`).join('、')}`}
       </div>
     </div>
   );
@@ -290,7 +306,7 @@ function Audits({ pid }: { pid: string }) {
               <td>{a.repos.map((r) => <div key={r.id} style={{ fontSize: 12 }}>{r.name} <span className={ui.faint}>{r.worktree ? '工作区版本' : `${r.ref ?? ''} ${r.commit?.slice(0, 7) ?? ''}`}</span></div>)}</td>
               <td><AuditStatusBadge status={a.status} />{a.status === 'running' && <div className={ui.faint} style={{ fontSize: 12 }}>{PHASE[a.phase]}</div>}</td>
               <td>{a.findingCount}</td>
-              <td style={{ fontSize: 12 }}>{fmt.compact(a.budget.consumed.tokens)} tokens<div className={ui.faint}>{fmt.duration(a.budget.consumed.durationMs)} · 成本 {fmt.cost(a.budget.consumed.costMicros)}</div></td>
+              <td style={{ fontSize: 12 }}>{fmt.tokens(a.budget.consumed.tokens)} tokens<div className={ui.faint}>{fmt.duration(a.budget.consumed.durationMs)} · 成本 {fmt.cost(a.budget.consumed.costMicros)}</div></td>
               <td className={ui.faint} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmt.date(a.createdAt)}</td>
             </tr>
           ))}

@@ -30,12 +30,15 @@ export function lspLanguageOfLang(lang: string): LspLanguage | null {
   return null;
 }
 
+/** How to point the service at a tool it did not find (settings page, or the CLI with the service stopped). */
+const setHint = (key: string) => `可在 设置 › 通用 › 外部工具路径 中指定（命令行：xiezhi config set tools.${key} <路径>），或加入 PATH`;
+
 /** The server for a language, or why there is none (doctor and plan use the same answer). */
 export function lspServer(config: AppConfig, language: LspLanguage): { server: LspServer | null; reason: string | null } {
   if (language === 'python' || language === 'typescript') {
     const [bin, key] = language === 'python' ? ['pyright-langserver', 'pyrightPath'] as const : ['typescript-language-server', 'tsLspPath'] as const;
     const file = executable(config.tools[key]) ?? find(bin);
-    if (!file) return { server: null, reason: `未找到 ${bin}（可在设置中指定 tools.${key}）` };
+    if (!file) return { server: null, reason: `未找到 ${bin}（${setHint(key)}）` };
     const node = executable(config.tools.nodePath) ?? find('node');
     if (!node) return { server: null, reason: `未找到 node（${bin} 需要它运行）` };
     return { server: { language, file, pathDirs: [dirname(node)] }, reason: null };
@@ -43,12 +46,12 @@ export function lspServer(config: AppConfig, language: LspLanguage): { server: L
   if (language === 'go') {
     const gopls = executable(config.tools.goplsPath) ?? find('gopls');
     const go = executable(config.tools.goPath) ?? find('go');
-    if (!gopls) return { server: null, reason: '未找到 gopls（可在设置中指定 tools.goplsPath）' };
+    if (!gopls) return { server: null, reason: `未找到 gopls（${setHint('goplsPath')}）` };
     if (!go) return { server: null, reason: '未找到 go 工具链（gopls 需要它加载包）' };
     return { server: { language, file: gopls, pathDirs: [dirname(go)] }, reason: null };
   }
   const jdtls = executable(config.tools.jdtlsPath) ?? find('jdtls');
-  if (!jdtls) return { server: null, reason: '未找到 jdtls（可在设置中指定 tools.jdtlsPath）' };
+  if (!jdtls) return { server: null, reason: `未找到 jdtls（${setHint('jdtlsPath')}）` };
   const java = find('java');
   return { server: { language, file: jdtls, pathDirs: java ? [dirname(java)] : [] }, reason: null };
 }

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PushGuideDto, ThreatSyncDto } from '@xiezhi/contracts';
 import { api } from '../../shared/api/client';
+import { fmt } from '../../shared/format/messages';
 import { Badge, Button, Dialog, EmptyState, Field, Icon, Loading, cx, ui, useToast } from '../../shared/ui';
 
 export function ThreatSyncButton({ pid, tid, disabled }: { pid: string; tid: string; disabled: boolean }) {
@@ -72,7 +73,7 @@ function SyncDialog({ pid, tid, onClose }: { pid: string; tid: string; onClose: 
         <div className={ui.stack}>
           <div className={ui.row} style={{ gap: 8 }}>
             <Badge tone={plan.action === 'create' ? 'accent' : 'info'}>{plan.action === 'create' ? '新建文档' : `更新文档 ${plan.existing?.externalId ?? ''}`}</Badge>
-            <span className={ui.faint} style={{ fontSize: 12 }}>{plan.connectorName} · {plan.skill}{plan.tokens ? ` · ${plan.tokens} tokens` : ''}</span>
+            <span className={ui.faint} style={{ fontSize: 12 }}>{plan.connectorName} · {plan.skill}{plan.tokens ? ` · ${fmt.tokens(plan.tokens)} tokens` : ''}</span>
           </div>
           {plan.reasons.length > 0 && <div className={ui.faint} style={{ fontSize: 12 }}>{plan.reasons.join('；')}</div>}
           {plan.steps.map((st, i) => (

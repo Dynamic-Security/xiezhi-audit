@@ -9,3 +9,4 @@ export * from './facts.js';
 export * from './egress.js';
 export * from './project-rules.js';
 export * from './solidify.js';
+export * from './filtered.js';

@@ -1,13 +1,16 @@
 // Tools of a conversation reply besides the code tools: read-only product data, and the cards the agent
-// proposes for the user to apply.
-import { CONVERSATION_TOOLS, ProposeAuditPlan, ProposeHunt, ProposeMerge, ProposeReverify, ProposeRevision, ProposeSplit, ReportInvestigation, DraftConnector, type CodeRef } from '@xiezhi/contracts';
+// proposes for the user to apply. Split out of service.ts `runReply`.
+import {
+  CONVERSATION_TOOLS, ProposeAnalysis, ProposeAuditPlan, ProposeHunt, ProposeMerge, ProposeProject, ProposeReverify, ProposeRevision, ProposeSplit, ProposeThreatModel, ProposeVulnDrafts,
+  ReportInvestigation, DraftConnector, type CodeRef,
+} from '@xiezhi/contracts';
 import { Type } from 'typebox';
 import type { SnapshotView } from '@xiezhi/context';
 import { wrapUntrusted, type AuditTool } from '@xiezhi/agent';
 import type { Store } from '@xiezhi/store';
 import { insertConnectorEvidence, type ConnectorRef } from '../connector-access.js';
 import { verifyCodeRef } from '../identity.js';
-import { strategyOverrideIssues } from '../services.js';
+import { PROJECT_NAME, strategyOverrideIssues } from '../services.js';
 import { addRevision } from '../vulns.js';
 import { mentionContext } from './context.js';
 import { P } from '@xiezhi/knowledge';
@@ -18,6 +21,8 @@ export interface ReplyToolContext {
   nonce: string;
   conversationId: string;
   messageId: string;
+  /** The user message this reply answers (a threat model source of kind `user_message`). */
+  userMessage: string;
   /** Projects the conversation is about (vulnerability numbers V-n are looked up in them). */
   projects: string[];
   /** Repositories in code scope, the first is the default. */
@@ -120,6 +125,19 @@ export function dataTools(rc: ReplyToolContext): AuditTool[] {
       description: P('tool.list_audits'),
       run: (a: { projectId: string; limit?: number }) => data(`audits:${a.projectId}`, store.all<{ id: string; title: string; scene: string; status: string; created_at: number }>(
         'SELECT id, title, scene, status, created_at FROM audit WHERE project_id = ? ORDER BY created_at DESC LIMIT ?', a.projectId, a.limit ?? 10).map((x) => ({ ...x, created_at: new Date(x.created_at).toISOString() }))),
+    },
+    {
+      name: 'list_connectors', kind: 'read', parameters: Type.Object({}, { additionalProperties: false }),
+      description: P('tool.list_connectors'),
+      run: () => data('connectors', store.all<{ id: string; name: string; protocol: string; purpose: string; enabled: number }>('SELECT id, name, protocol, purpose, enabled FROM connector ORDER BY name LIMIT 100')
+        .map((c) => ({ ...c, enabled: !!c.enabled }))),
+    },
+    {
+      name: 'list_threat_models', kind: 'read', parameters: Type.Object({ projectId: Type.String({ maxLength: 120 }) }, { additionalProperties: false }),
+      description: P('tool.list_threat_models'),
+      run: (a: { projectId: string }) => data(`threat_models:${a.projectId}`, store.all<{ id: string; title: string; status: string; sources: number; risks: number }>(
+        `SELECT t.id, t.title, t.status, (SELECT COUNT(*) FROM threat_model_source s WHERE s.threat_model_id = t.id) AS sources,
+           (SELECT COUNT(*) FROM threat_risk r WHERE r.threat_model_id = t.id) AS risks FROM threat_model t WHERE t.project_id = ? ORDER BY t.created_at DESC LIMIT 20`, a.projectId)),
     },
   ];
 }
@@ -251,6 +269,66 @@ export function cardTools(rc: ReplyToolContext): AuditTool[] {
       run: (a: DraftConnector) => {
         const id = card('draft_connector', { title: `连接器草稿 ${a.name}`, action: 'connector', name: a.name, protocol: a.protocol, purpose: a.purpose, config: a.config, secrets: a.secrets ?? [], notes: a.notes ?? null });
         return { text: P('feedback.conversation.connector_draft_shown', { id }) };
+      },
+    },
+    // The rest of the product's AI tasks, still as cards.
+    {
+      name: 'propose_project', kind: 'submit', parameters: ProposeProject,
+      description: P('tool.propose_project'),
+      validate: (a: ProposeProject) => {
+        const name = a.name.trim();
+        const issues = PROJECT_NAME.test(name) ? [] : [P('feedback.conversation.project_name')];
+        if (store.get('SELECT id FROM project WHERE name = ?', name)) issues.push(P('feedback.conversation.project_exists', { name }));
+        a.repos.forEach((r, i) => { if (!r.path === !r.git) issues.push(`repos[${i}]: give exactly one of path or git`); });
+        if (a.audit && !a.repos.length) issues.push(P('feedback.conversation.project_audit_no_repo'));
+        if (a.audit?.strategyOverride) issues.push(...strategyOverrideIssues(store, 'full', a.audit.strategyOverride));
+        return issues;
+      },
+      run: (a: ProposeProject) => {
+        const id = card('propose_project', {
+          title: `新建项目 ${a.name.trim()}`, action: 'project', name: a.name.trim(), repos: a.repos, analyze: a.analyze ?? false, audit: a.audit ?? null, rationale: a.rationale,
+        });
+        return { text: P('feedback.conversation.project_shown', { id }) };
+      },
+    },
+    {
+      name: 'propose_threat_model', kind: 'submit', parameters: ProposeThreatModel,
+      description: P('tool.propose_threat_model'),
+      validate: (a: ProposeThreatModel) => {
+        if (!store.get('SELECT id FROM project WHERE id = ?', a.projectId)) return [`unknown projectId ${a.projectId}`];
+        return a.sources.flatMap((s, i) => s.kind === 'online' && !store.get('SELECT id FROM connector WHERE id = ?', s.connectorId) ? [`sources[${i}]: unknown connectorId ${s.connectorId}`]
+          : s.kind === 'user_message' && !rc.userMessage.trim() ? [`sources[${i}]: the user message is empty`]
+            : s.kind === 'text' && !s.text.trim() ? [`sources[${i}]: empty text`] : []);
+      },
+      run: (a: ProposeThreatModel) => {
+        const p = store.get<{ name: string }>('SELECT name FROM project WHERE id = ?', a.projectId)!;
+        // The user's message is copied into the card: applying it later uses exactly what the user wrote.
+        const sources = a.sources.map((s) => (s.kind === 'user_message' ? { kind: 'text' as const, title: s.title, text: rc.userMessage } : s));
+        const id = card('propose_threat_model', {
+          title: a.title, action: 'threat_model', projectId: a.projectId, project: p.name, sources, generate: a.generate ?? true, rationale: a.rationale,
+        }, { kind: 'project', id: a.projectId });
+        return { text: P('feedback.conversation.threat_model_shown', { id }) };
+      },
+    },
+    {
+      name: 'propose_vuln_drafts', kind: 'submit', parameters: ProposeVulnDrafts,
+      description: P('tool.propose_vuln_drafts'),
+      validate: (a: ProposeVulnDrafts) => (vulnRow(a.vulnId) ? [] : [`unknown vulnId ${a.vulnId}`]),
+      run: (a: ProposeVulnDrafts) => {
+        const v = vulnRow(a.vulnId)!;
+        const id = card('propose_vuln_drafts', { title: `V-${v.display_no} ${v.title}`, action: 'vuln_drafts', vulnId: v.id, displayNo: v.display_no, kinds: a.kinds, rationale: a.rationale }, { kind: 'vuln', id: v.id });
+        return { text: P('feedback.conversation.vuln_drafts_shown', { id }) };
+      },
+    },
+    {
+      name: 'propose_analysis', kind: 'submit', parameters: ProposeAnalysis,
+      description: P('tool.propose_analysis'),
+      validate: (a: ProposeAnalysis) => (!store.get('SELECT id FROM project WHERE id = ?', a.projectId) ? [`unknown projectId ${a.projectId}`]
+        : store.get('SELECT id FROM repository WHERE project_id = ?', a.projectId) ? [] : [P('feedback.conversation.analysis_no_repo')]),
+      run: (a: ProposeAnalysis) => {
+        const p = store.get<{ name: string }>('SELECT name FROM project WHERE id = ?', a.projectId)!;
+        const id = card('propose_analysis', { title: `${p.name} · 项目分析`, action: 'analysis', projectId: a.projectId, project: p.name, rationale: a.rationale }, { kind: 'project', id: a.projectId });
+        return { text: P('feedback.conversation.analysis_shown', { id }) };
       },
     },
   ];

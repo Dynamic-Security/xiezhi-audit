@@ -6,27 +6,26 @@ import { plannedExploreMode } from '../explore.js';
 import { supplementScope } from '../threat.js';
 import { backfillScope } from './coverage-gap.js';
 import { calibrated, calibrationRatio } from '../calibration.js';
-import { SubmitPlan, type SubmitPlan as PlanSubmission, stageModel } from '@xiezhi/contracts';
+import { SubmitPlan, type ContextItem, type SubmitPlan as PlanSubmission, stageModel } from '@xiezhi/contracts';
 import type { HuntBasis, ModelRef, StepKind } from '@xiezhi/contracts';
 import type { AuditTool } from '@xiezhi/agent';
 import { estimatePipeline, estimateStep, stageShortfalls, type PlanEstimate } from '../estimates.js';
 import { lspLanguageOfLang, lspServer, LSP_SERVER_NAMES } from '../lsp.js';
+import { UNKNOWN_EXTERNAL_SERVICE } from '../topology.js';
 import { auditLanguagesOfView, type LspLanguage } from '@xiezhi/context';
-import { auditLanguageLabels } from '@xiezhi/contracts';
+import { auditLanguageLabels, formatTokens } from '@xiezhi/contracts';
 import type { AuditRuntime } from '../runtime.js';
 import { sessionError, type AttemptContext, type StepResult } from '../step-runner.js';
 import { buildCandidates } from './triage.js';
-import { changedPaths, IMPACT_MODE_TEXT, impactLimitations, incrementalSelection } from './scope.js';
+import { changedFileList, IMPACT_MODE_TEXT, impactLimitations, incrementalSelection } from './scope.js';
 import { P } from '@xiezhi/knowledge';
 
 const BUDGET_STAGE_LABEL: Record<string, string> = {
-  prepare: '计划与画像', triage: '初筛', hunt: '深入审计', gap: '覆盖补齐', hypotheses: '风险假设', explore: '深度探索', merge: '归并', review: '对抗复核', verify: '复验',
+  prepare: '计划与画像', hypotheses: '风险假设', triage: '初筛', hunt: '领域审计', gap: '覆盖补齐', merge: '归并', explore: '深度探索', review: '对抗复核', verify: '复验',
 };
-const tokensLabel = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}k`);
 
-/** Incremental audits: what is compared and how precise the impact analysis is. */
-export interface IncrementalSummary {
-  base: { auditId: string | null; ref: string | null; commit: string | null; rootHash: string; worktree: boolean };
+interface IncrementalBase { auditId: string | null; ref: string | null; commit: string | null; rootHash: string; worktree: boolean }
+interface IncrementalChange {
   mode: 'precise' | 'heuristic' | 'full_scan';
   fallbackReasons: string[];
   changedFiles: { added: number; modified: number; deleted: number; renamed: number };
@@ -34,9 +33,20 @@ export interface IncrementalSummary {
   affectedEntrypoints: number;
   affectedSinks: number;
 }
+/**
+ * Incremental audits: what is compared and how precise the impact analysis is. With several targets
+ * The top level sums them and `repos` has each; `base` is null for a target audited in full without one.
+ */
+export interface IncrementalSummary extends IncrementalChange {
+  base: IncrementalBase;
+  repos?: (IncrementalChange & { repo: string; base: IncrementalBase | null })[];
+}
+
+const MODE_ORDER: IncrementalChange['mode'][] = ['precise', 'heuristic', 'full_scan'];
 
 export interface AuditPlan {
-  submitted: PlanSubmission;
+  /** `contextNeeded` items of older stored plans are plain strings (read them with contracts `contextItem`). */
+  submitted: Omit<PlanSubmission, 'contextNeeded'> & { contextNeeded: (ContextItem | string)[] };
   scale: { files: number; byLang: Record<string, number>; entrypoints: number; sinks: number; candidates: number; sinksByCategory: Record<string, number> };
   estimate: PlanEstimate;
   strategySources: Record<string, string>;
@@ -46,16 +56,41 @@ export interface AuditPlan {
 }
 
 export function incrementalSummary(rt: AuditRuntime): IncrementalSummary | undefined {
-  const impact = rt.impact();
-  const base = rt.baseRepo();
-  if (!impact || !base) return undefined;
-  const snap = rt.store.get<{ requested_ref: string | null; resolved_commit: string | null; is_worktree: number }>('SELECT requested_ref, resolved_commit, is_worktree FROM snapshot WHERE id = ?', base.snapshotId);
-  const c = impact.changedFiles;
+  const impacts = rt.impacts();
+  const repos = rt.targets.flatMap((t) => {
+    const impact = impacts.get(t.name);
+    if (!impact) return [];
+    const b = rt.baseRepo(t.id);
+    const snap = b ? rt.store.get<{ requested_ref: string | null; resolved_commit: string | null; is_worktree: number }>('SELECT requested_ref, resolved_commit, is_worktree FROM snapshot WHERE id = ?', b.snapshotId) : undefined;
+    // The audit's baseline audit, when every target's baseline came from it; else the audit that last snapshotted it.
+    const auditId = b ? rt.audit.base_audit_id ?? rt.store.get<{ audit_id: string }>(`SELECT ar.audit_id FROM audit_repository ar JOIN audit a ON a.id = ar.audit_id
+      WHERE ar.snapshot_id = ? AND a.status IN ('completed','partial') ORDER BY a.ended_at DESC LIMIT 1`, b.snapshotId)?.audit_id ?? null : null;
+    const c = impact.changedFiles;
+    return [{
+      repo: t.name,
+      base: b ? { auditId, ref: snap?.requested_ref ?? null, commit: snap?.resolved_commit ?? null, rootHash: b.rootHash, worktree: !!snap?.is_worktree } : null,
+      mode: impact.mode as IncrementalChange['mode'], fallbackReasons: impact.fallbackReasons,
+      changedFiles: { added: c.added.length, modified: c.modified.length, deleted: c.deleted.length, renamed: c.renamed.length },
+      changedSymbols: impact.changedSymbols.length, affectedEntrypoints: impact.affectedEntrypoints.length, affectedSinks: impact.affectedSinks.length,
+    }];
+  });
+  const base = repos.find((r) => r.base)?.base;
+  if (!base) return undefined;
+  if (repos.length === 1) {
+    const one = repos[0]!;
+    return {
+      base: { ...base, auditId: rt.audit.base_audit_id ?? null }, mode: one.mode, fallbackReasons: one.fallbackReasons, changedFiles: one.changedFiles,
+      changedSymbols: one.changedSymbols, affectedEntrypoints: one.affectedEntrypoints, affectedSinks: one.affectedSinks,
+    };
+  }
+  const sum = (f: (r: IncrementalChange) => number) => repos.reduce((n, r) => n + f(r), 0);
   return {
-    base: { auditId: rt.audit.base_audit_id ?? null, ref: snap?.requested_ref ?? null, commit: snap?.resolved_commit ?? null, rootHash: base.rootHash, worktree: !!snap?.is_worktree },
-    mode: impact.mode as IncrementalSummary['mode'], fallbackReasons: impact.fallbackReasons,
-    changedFiles: { added: c.added.length, modified: c.modified.length, deleted: c.deleted.length, renamed: c.renamed.length },
-    changedSymbols: impact.changedSymbols.length, affectedEntrypoints: impact.affectedEntrypoints.length, affectedSinks: impact.affectedSinks.length,
+    base,
+    mode: MODE_ORDER[Math.max(...repos.map((r) => MODE_ORDER.indexOf(r.mode)))]!,
+    fallbackReasons: [...new Set(repos.flatMap((r) => r.fallbackReasons))],
+    changedFiles: { added: sum((r) => r.changedFiles.added), modified: sum((r) => r.changedFiles.modified), deleted: sum((r) => r.changedFiles.deleted), renamed: sum((r) => r.changedFiles.renamed) },
+    changedSymbols: sum((r) => r.changedSymbols), affectedEntrypoints: sum((r) => r.affectedEntrypoints), affectedSinks: sum((r) => r.affectedSinks),
+    repos,
   };
 }
 
@@ -77,7 +112,7 @@ export function scaleSummary(rt: AuditRuntime): AuditPlan['scale'] {
   }
   return {
     files, byLang, entrypoints, sinks, sinksByCategory,
-    candidates: rt.audit.scene === 'incremental' && rt.impact() ? incrementalSelection(rt, rt.impact()!).candidates.length : buildCandidates(rt).length,
+    candidates: rt.audit.scene === 'incremental' && rt.impacts().size ? incrementalSelection(rt, rt.impacts()).candidates.length : buildCandidates(rt).length,
   };
 }
 
@@ -91,8 +126,6 @@ export function engineLimitations(rt: AuditRuntime): string[] {
     }
   }
   if (!rt.strategy.tools.ast) out.push('结构索引关闭：没有入口/危险点清单，覆盖对照不可用，只能用 grep/read 近似。');
-  // Variant search is seeded by a diff; a full audit has none.
-  if (rt.strategy.impact.variantSearch && rt.audit.scene !== 'incremental') out.push('变体搜索以本次变更（diff）为种子，只在增量审计中执行；本次全量审计没有基线，未执行。');
   for (const [repo, idx] of rt.indexes) if (idx.gaps.length) out.push(`${repo}：结构索引有 ${idx.gaps.length} 个缺口（解析失败或规则错误），覆盖分母不完整。`);
   if (rt.targets.every((t) => { const v = rt.views.get(t.name); return !v || auditLanguagesOfView(v).length === 0; })) {
     out.push(`仓库中没有可完整审计的源码：完整审计支持 ${auditLanguageLabels()}（JavaScript/TypeScript 需声明服务端框架依赖）。`);
@@ -100,11 +133,15 @@ export function engineLimitations(rt: AuditRuntime): string[] {
   // Services the code calls but the project does not contain (topology external services, 已知限制).
   const ext = rt.store.all<{ name: string }>(`SELECT DISTINCT n.name FROM topology_node n JOIN topology_edge e ON e.to_node = n.id AND e.removed = 0
     WHERE n.project_id = ? AND n.kind = 'external_service' ORDER BY n.name`, rt.audit.project_id).map((r) => r.name);
-  if (ext.length) out.push(`缺失的仓库：代码调用了项目外的服务 ${ext.slice(0, 10).join('、')}${ext.length > 10 ? ' 等' : ''}，依赖它们的结论可能只能标为“待确认”。`);
+  // The node topology.ts names UNKNOWN_EXTERNAL_SERVICE stands for calls whose target could not be told, not for a service.
+  const named = ext.filter((n) => n !== UNKNOWN_EXTERNAL_SERVICE);
+  const unknown = named.length < ext.length ? '代码中还有服务调用无法确定目标（见“系统拓扑”）' : '';
+  if (named.length) out.push(`缺失的仓库：代码调用了项目外的服务 ${named.slice(0, 10).join('、')}${named.length > 10 ? ' 等' : ''}${unknown ? `；${unknown}` : ''}，依赖它们的结论可能只能标为“待确认”。`);
+  else if (unknown) out.push(`缺失的仓库：${unknown}，依赖它们的结论可能只能标为“待确认”。`);
   const related = rt.repos.filter((r) => r.role !== 'target').map((r) => r.name);
   if (related.length) out.push(`关联 / 上下文仓库 ${related.join('、')} 只作为证据来源，不产生其自身的发现。`);
-  const impact = rt.audit.scene === 'incremental' ? rt.impact() : null;
-  if (impact) out.push(...impactLimitations(impact));
+  const impacts = rt.audit.scene === 'incremental' ? rt.impacts() : null;
+  if (impacts?.size) out.push(...impactLimitations(impacts));
   return out;
 }
 
@@ -187,15 +224,15 @@ export async function planStep(rt: AuditRuntime, ctx: AttemptContext, opts: { de
   };
   const s = rt.strategy;
   const inc = incrementalSummary(rt);
-  const impact = inc ? rt.impact()! : null;
+  const baseText = (b: IncrementalBase | null) => (b ? b.ref ?? b.commit?.slice(0, 12) ?? '上次审计的版本' : '没有基线，按全量审计');
   const prompt = [
     P('plan.intro'),
-    ...(inc && impact ? [
+    ...(inc ? [
       P('plan.incremental', {
-        base: inc.base.ref ?? inc.base.commit?.slice(0, 12) ?? '上次审计的版本', added: inc.changedFiles.added, modified: inc.changedFiles.modified,
+        base: inc.repos ? inc.repos.map((r) => `${r.repo} ← ${baseText(r.base)}`).join('；') : baseText(inc.base), added: inc.changedFiles.added, modified: inc.changedFiles.modified,
         deleted: inc.changedFiles.deleted, renamed: inc.changedFiles.renamed, mode: String(IMPACT_MODE_TEXT[inc.mode]), entrypoints: inc.affectedEntrypoints, sinks: inc.affectedSinks,
       }),
-      `变更文件：${changedPaths(rt, impact).slice(0, 60).join('、') || '（无）'}`,
+      `变更文件：${changedFileList(rt, rt.impacts()).slice(0, 60).join('、') || '（无）'}`,
     ] : []),
     rt.repos.length > 1
       ? `仓库：${rt.repos.map((r) => `${r.name}（${r.role === 'target' ? '审计目标' : r.role === 'related' ? '关联' : '上下文'}）`).join('、')}；目标仓库合计文件 ${scale.files} 个；语言分布 ${JSON.stringify(scale.byLang)}。`
@@ -233,10 +270,10 @@ export async function planStep(rt: AuditRuntime, ctx: AttemptContext, opts: { de
   });
   // say before the start which stage quota the estimate does not fit.
   const short = stageShortfalls(s, estimate, ratio, rt.targets.length).map((x) =>
-    `${BUDGET_STAGE_LABEL[x.stage]}估算约 ${tokensLabel(x.need)}，超过阶段额度 ${tokensLabel(x.limit)}：运行中可能暂停等待追加。可在发起前调高该阶段的份额。`);
-  // the whole budget too (an incremental plan estimated 3.1–5.7M against 3M and said nothing).
+    `${BUDGET_STAGE_LABEL[x.stage]}估算约 ${formatTokens(x.need)}，超过阶段额度 ${formatTokens(x.limit)}：运行中可能暂停等待追加。可在发起前调高该阶段的份额。`);
+  // The whole budget too (an incremental plan estimated 3.1–5.7M against 3M and said nothing).
   if (estimate.tokens.p50 > s.budget.tokens) {
-    short.unshift(`整体估算约 ${tokensLabel(estimate.tokens.p50)}–${tokensLabel(estimate.tokens.p90)}，超过 token 预算 ${tokensLabel(s.budget.tokens)}：运行中可能暂停等待追加。可在“调整”中提高预算。`);
+    short.unshift(`整体估算约 ${formatTokens(estimate.tokens.p50)}–${formatTokens(estimate.tokens.p90)}，超过 token 预算 ${formatTokens(s.budget.tokens)}：运行中可能暂停等待追加。可在“调整”中提高预算。`);
   }
   const plan: AuditPlan = {
     submitted, scale, estimate,

@@ -44,6 +44,9 @@
 }
 .textarea { height: auto; min-height: 84px; padding: 10px 12px; resize: vertical; line-height: 1.55; }
 .input:focus, .select:focus, .textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+.unitInput { position: relative; display: block; }
+.unitInput .input { padding-right: 34px; }
+.unit { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: var(--fs-sm); color: var(--text-3); pointer-events: none; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .label { font-size: var(--fs-sm); font-weight: 500; color: var(--text); }
 .hint { font-size: var(--fs-xs); color: var(--text-3); }
@@ -142,3 +145,8 @@
 .pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .skeleton { background: linear-gradient(90deg, var(--bg-muted), var(--bg-subtle), var(--bg-muted)); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: var(--radius-sm); }
 @keyframes shimmer { to { background-position: -200% 0; } }
+
+.infoBtn { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-3); cursor: help; flex: none; }
+.infoBtn:hover, .infoBtn[aria-expanded="true"] { color: var(--accent); background: var(--bg-hover); }
+.infoBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.infoPop { position: fixed; z-index: 130; width: min(300px, calc(100vw - 32px)); padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elevated); box-shadow: var(--shadow-lg); font-size: var(--fs-xs); line-height: 1.55; color: var(--text); white-space: normal; }

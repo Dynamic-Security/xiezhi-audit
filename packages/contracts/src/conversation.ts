@@ -2,7 +2,7 @@
 // tools the conversation agent may call (they never change data — the user applies a card), the audit
 // plan request shared with `POST /audit-plans` (both entries build the same plan), and DTOs.
 import { Type, type Static, type TSchema } from 'typebox';
-import { CONFIRM_STATUSES, HANDLING_STATUSES, SEVERITIES, closedSet } from './enums.js';
+import { CONFIRM_STATUSES, HANDLING_STATUSES, SEVERITIES, THREAT_SOURCE_MAX_BYTES, closedSet } from './enums.js';
 import { CodeRef } from './submit.js';
 
 export const CONVERSATION_STATUSES = ['active', 'archived'] as const;
@@ -22,6 +22,18 @@ export type FinishReason = (typeof FINISH_REASONS)[number];
 export const MESSAGE_EVENT_TYPES = ['message_start', 'delta', 'tool_call', 'card', 'done', 'error'] as const;
 export type MessageEventType = (typeof MESSAGE_EVENT_TYPES)[number];
 
+/**
+ * Files added to a user message: pasted or chosen images go to the model as images (when its entry
+ * allows them, `ModelProviderConfig.models[].images`); text files, also from an added folder, as data blocks of the
+ * message. Other files are refused. Stored as artifacts; later turns see only their names.
+ */
+export const ATTACHMENT_KINDS = ['image', 'text'] as const;
+export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
+export const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
+export const ATTACHMENT_LIMITS = {
+  files: 100, images: 5, imageBytes: 5 * 1024 * 1024, textBytes: 512 * 1024, totalTextBytes: 1024 * 1024,
+} as const;
+
 const Str = (max: number, min = 1) => Type.String({ minLength: min, maxLength: max });
 const Id = Str(120);
 /** A vulnerability: its id, or its number `V-n` within the conversation's projects. */
@@ -40,10 +52,11 @@ export const AuditPlanRequest = O({
   projectId: Type.String({ minLength: 1 }), repository: Type.Optional(Type.String()), ref: Type.Optional(Type.String({ maxLength: 250 })),
   mode: Type.Optional(Type.Enum(['single', 'multi'] as const)),
   related: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 120 }), { maxItems: 50, description: '单仓库模式的关联仓库（只作证据）' })),
-  repositories: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 120 }), { maxItems: 50, description: '多仓库合并审计的目标仓库；省略 = 全部可审计仓库' })),
+  repositories: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 120 }), { maxItems: 50, description: '多仓库合并审计（全量或增量）的目标仓库；省略 = 全部可审计仓库' })),
   refs: Type.Optional(Type.Record(Type.String(), Type.String({ minLength: 1, maxLength: 250 }), { description: '按仓库（名称或 id）指定版本' })),
   title: Type.Optional(Type.String({ maxLength: 200 })), scene: Type.Optional(Type.Union([Type.Literal('full'), Type.Literal('incremental')])),
   baseRef: Type.Optional(Type.String({ minLength: 1, maxLength: 250 })), baseAuditId: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+  baseRefs: Type.Optional(Type.Record(Type.String(), Type.String({ minLength: 1, maxLength: 250 }), { description: '多仓库增量审计：按仓库（名称或 id）指定对比基线；省略的仓库用其上次审计的版本，没有则按全量审计' })),
   strategyOverride: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 });
 export type AuditPlanRequest = Static<typeof AuditPlanRequest>;
@@ -116,11 +129,56 @@ export const DraftConnector = O({
 }, 'A connector configuration draft. Never put credentials in config; name them in secrets.');
 export type DraftConnector = Static<typeof DraftConnector>;
 
+// Projects, threat models and per-vulnerability drafts from the conversation — still cards the user applies.
+
+/** A repository to add: a local directory or a Git URL (uploads go through the form). */
+const RepoSource = O({
+  path: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: '本地目录（服务所在机器的绝对路径）' })),
+  git: Type.Optional(Type.String({ minLength: 1, maxLength: 2000, description: 'Git 地址：https://… 或 ssh / git@host:path；不得内嵌凭证' })),
+  name: Type.Optional(Str(100)), ref: Type.Optional(Str(250)),
+});
+
+export const ProposeProject = O({
+  name: Type.String({ minLength: 1, maxLength: 100, description: '字母、数字开头，可含空格、点、横线、下划线' }),
+  repos: Type.Array(RepoSource, { maxItems: 20, description: '每项给出 path 或 git 之一' }),
+  /** After the repositories are added: analyze repository roles, and/or start a full audit (single repository, or multi when several are auditable). */
+  analyze: Type.Optional(Type.Boolean()),
+  audit: Type.Optional(O({ title: Type.Optional(Str(200)), strategyOverride: Type.Optional(Type.Record(Type.String(), Type.Unknown())) })),
+  rationale: Str(2000),
+}, 'Propose creating a project with its repositories; optionally analyze repository roles and start a full audit right after.');
+export type ProposeProject = Static<typeof ProposeProject>;
+
+export const ThreatSourceProposal = Type.Union([
+  O({ kind: Type.Literal('user_message'), title: Str(200) }, 'The text of the user message this reply answers, taken verbatim (do not copy it into a text source).'),
+  O({ kind: Type.Literal('text'), title: Type.Optional(Str(200)), text: Str(THREAT_SOURCE_MAX_BYTES) }),
+  O({ kind: Type.Literal('online'), title: Str(200), connectorId: Id, docRef: Str(2000) }),
+]);
+export type ThreatSourceProposal = Static<typeof ThreatSourceProposal>;
+
+export const ProposeThreatModel = O({
+  projectId: Id, title: Str(200),
+  sources: Type.Array(ThreatSourceProposal, { minItems: 1, maxItems: 20 }),
+  /** Start generating once created (default true). */
+  generate: Type.Optional(Type.Boolean()),
+  rationale: Str(2000),
+}, 'Propose a requirement threat model: the project, the requirement sources, and whether to generate right away.');
+export type ProposeThreatModel = Static<typeof ProposeThreatModel>;
+
+export const VULN_DRAFT_KINDS = ['fix', 'case', 'rule'] as const;
+export const ProposeVulnDrafts = O({
+  vulnId: VulnRef, kinds: Type.Array(Type.Enum(VULN_DRAFT_KINDS), { minItems: 1, maxItems: 3, uniqueItems: true }), rationale: Str(2000),
+}, 'Propose AI drafts for a vulnerability: fix = patch suggestion, case = verification case, rule = project rule against recurrence.');
+export type ProposeVulnDrafts = Static<typeof ProposeVulnDrafts>;
+
+export const ProposeAnalysis = O({ projectId: Id, rationale: Str(2000) }, 'Propose analyzing the repository roles and relations of a project (project analysis).');
+export type ProposeAnalysis = Static<typeof ProposeAnalysis>;
+
 /** Tool name → card kind. */
 export const CONVERSATION_TOOLS = {
   report_investigation: 'investigation', propose_revision: 'revision_suggestion', propose_audit_plan: 'audit_plan',
   propose_reverify: 'audit_plan', propose_hunt: 'audit_plan', propose_merge: 'revision_suggestion', propose_split: 'revision_suggestion',
   draft_connector: 'connector_draft',
+  propose_project: 'audit_plan', propose_threat_model: 'audit_plan', propose_vuln_drafts: 'audit_plan', propose_analysis: 'audit_plan',
 } as const satisfies Record<string, CardKind>;
 
 // ---- DTOs --------------------------------------------------------------------------------------
@@ -164,8 +222,14 @@ export const ToolCallDto = O({
   textOffset: Type.Optional(N(Type.Integer())),
 });
 export type ToolCallDto = Static<typeof ToolCallDto>;
+export const AttachmentDto = O({
+  /** sha256 of the bytes; served at `GET /messages/{mid}/attachments/{id}`. */
+  id: S, kind: closedSet(ATTACHMENT_KINDS), name: S, mimeType: S, size: Type.Integer(),
+});
+export type AttachmentDto = Static<typeof AttachmentDto>;
 export const MessageDto = O({
   id: S, conversationId: S, seq: Type.Integer(), role: closedSet(MESSAGE_ROLES), content: S, mentions: Type.Array(MentionDto),
+  attachments: Type.Array(AttachmentDto),
   status: closedSet(MESSAGE_STATUSES), finishReason: N(closedSet(FINISH_REASONS)), model: N(S), tokens: Type.Integer(),
   toolCalls: Type.Array(ToolCallDto), cards: Type.Array(CardDto), error: N(S), clientMessageId: N(S), createdAt: S,
 });
@@ -187,11 +251,19 @@ export const PatchConversationBody = O({
   title: Type.Optional(Str(200)), status: Type.Optional(closedSet(CONVERSATION_STATUSES)), pinned: Type.Optional(Type.Boolean()),
   model: Type.Optional(N(O({ provider: Str(64), model: Str(200) }))),
 });
+/** A file as sent: base64 bytes; `name` is the path within an added folder. Kind and limits are checked by the engine. */
+export const AttachmentInput = O({
+  name: Str(500), mimeType: Type.String({ maxLength: 200 }),
+  data: Type.String({ maxLength: Math.ceil(ATTACHMENT_LIMITS.imageBytes / 3) * 4, pattern: '^[A-Za-z0-9+/]*={0,2}$' }),
+});
+export type AttachmentInput = Static<typeof AttachmentInput>;
 export const PostMessagesBody = O({
   /** Idempotency key: resending the same client id returns the same pair. */
   clientMessageId: Type.String({ pattern: '^[A-Za-z0-9_-]{8,64}$' }),
-  content: Str(20_000),
+  /** May be empty when files are attached. */
+  content: Str(20_000, 0),
   mentions: Type.Optional(Type.Array(Mention, { maxItems: 20 })),
+  attachments: Type.Optional(Type.Array(AttachmentInput, { maxItems: ATTACHMENT_LIMITS.files })),
 });
 /** Edit the last user message and answer it again. */
 export const EditMessageBody = O({ clientMessageId: Type.String({ pattern: '^[A-Za-z0-9_-]{8,64}$' }), content: Str(20_000) });

@@ -106,6 +106,22 @@ export interface PublishOutput {
  * confidence and confirmation; those that fell below minConfidence become “证据不足” instead. Runs once per audit
  * (also after a coverage-gap round), so findings are never published twice.
  */
+/**
+ * The clusters a model group joins: only within one repository, as for matches across audits —
+ * gpt-6-luna grouped the SSRF of two services as one root cause, and one of them disappeared.
+ */
+export function semanticUnions(groups: string[][], repoOf: (key: string) => string): [string, string][] {
+  const out: [string, string][] = [];
+  for (const keys of groups) {
+    const first = new Map<string, string>();
+    for (const k of keys) {
+      const f = first.get(repoOf(k));
+      if (f) out.push([f, k]); else first.set(repoOf(k), k);
+    }
+  }
+  return out;
+}
+
 export async function publishStep(rt: AuditRuntime, ctx: AttemptContext, opts: { deterministic?: boolean } = {}): Promise<StepResult> {
   const store = rt.store;
   const rows = store.all<CanonicalFinding & { confidence_score: number }>(
@@ -221,10 +237,7 @@ export async function reconcileStep(rt: AuditRuntime, ctx: AttemptContext, opts:
     const err = sessionError(outcome);
     if (err) throw err; // fail-closed: never silently skip grouping
     const res = (outcome.submissions.submit_merge_groups as { groups: { labels: string[] }[]; dropped: { label: string; reason: string; detail: string }[] }[]).at(-1)!;
-    for (const g of res.groups) {
-      const keys = g.labels.map((l) => labels.get(l)!);
-      for (const k of keys.slice(1)) uf.union(keys[0]!, k);
-    }
+    for (const [a, b] of semanticUnions(res.groups.map((g) => g.labels.map((l) => labels.get(l)!)), (k) => clusters.get(k)![0]!.repository_id)) uf.union(a, b);
     for (const d of res.dropped) for (const r of clusters.get(labels.get(d.label)!)!) dropped.push({ id: r.id, reason: d.reason, detail: d.detail });
   }
   const droppedIds = new Set(dropped.map((d) => d.id));

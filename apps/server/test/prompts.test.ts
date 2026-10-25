@@ -58,7 +58,10 @@ describe('pipeline prompts API', () => {
     expect(list.hash).toBe('default');
     expect(new Set(list.items.map((p) => p.group))).toEqual(new Set(['role_rules', 'step_task', 'standalone', 'conversation', 'nudge', 'data_note', 'tool']));
     expect(list.items.filter((p) => p.group === 'tool').every((p) => !p.editable && p.readonlyReason)).toBe(true);
-    expect(list.items.some((p) => p.id.startsWith('field.submitfindings.'))).toBe(true);
+    // One entry per field description text, naming every field that shares it.
+    const fields = list.items.filter((p) => p.id.startsWith('field.'));
+    expect(new Set(fields.map((p) => p.effectiveText)).size).toBe(fields.length);
+    expect(fields.find((p) => p.effectiveText.startsWith('Repository name'))!.description).toMatch(/个字段共用的说明.*SubmitFindings\.findings\[\]\.location\.repo/);
     const intro = list.items.find((p) => p.id === 'challenge.intro')!;
     expect(intro).toMatchObject({ editable: true, effectiveLayer: 'default', global: null, project: null });
     expect(intro.locked).toContain('submit_challenge');

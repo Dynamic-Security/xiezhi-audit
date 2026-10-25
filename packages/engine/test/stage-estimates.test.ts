@@ -13,8 +13,10 @@ const M = { provider: 'gw', model: 'm1' };
 const M2 = { provider: 'gw', model: 'm2' };
 
 function variants(): Record<string, [AuditStrategy, number, number, Parameters<typeof estimatePipeline>[5]]> {
-  const full = sceneDefaults('full', { defaultModel: M });
-  const inc = sceneDefaults('incremental', { defaultModel: M });
+  // 风险假设先行 is on by default; the golden variants keep it off unless they name it.
+  const off = (s: AuditStrategy): AuditStrategy => ({ ...s, stages: { ...s.stages, threatHypotheses: false } });
+  const full = off(sceneDefaults('full', { defaultModel: M }));
+  const inc = off(sceneDefaults('incremental', { defaultModel: M }));
   const cross: AuditStrategy = { ...full, multiModel: { ...full.multiModel, enabled: true, models: [M, M2] } };
   const lean: AuditStrategy = { ...full, models: { ...full.models, triage: null, merge: null }, stages: { ...full.stages, adversarialReview: false }, tools: { ...full.tools, coverageCompare: false } };
   const hyp: AuditStrategy = { ...full, stages: { ...full.stages, threatHypotheses: true, tieredReview: false } };
@@ -76,4 +78,24 @@ describe('stage estimates', () => {
     expect(onDemand.byStage!.find((x) => x.stage === 'explore')!.tokens).toBe(Math.round(5 * 18_000 * 1.15 * 0.7));
     expect(onDemand.tokens.p50).toBeGreaterThan(off.tokens.p50);
   });
+
+  it('sizes the experts and the profile by the repository: a large deep audit, a small repository', () => {
+    const s = sceneDefaults('full', { defaultModel: M });
+    const deep: AuditStrategy = { ...s, stages: { ...s.stages, threatHypotheses: true, deepExplore: true, tieredReview: false }, limits: { ...s.limits, maxCandidates: 2000, maxRounds: 60 } };
+    const opts = { domainHunt: true, gapFill: true, checklist: true, recheck: true, explore: 'full' as const };
+    // A project with ~820 candidates: before this change 14.5M–27M; the deep runs used 105M (Sonnet, finished) and
+    // 65–75M (Haiku, Sonnet) before their hunt was done.
+    const cex = estimatePipeline(deep, 818, 205, undefined, undefined, opts);
+    expect(cex.tokens.p50).toBeGreaterThan(50_000_000);
+    expect(cex.tokens.p90).toBeGreaterThan(105_000_000);
+    expect(cex.byStep.hunt).toBe(Math.ceil((818 * 70_000) / 6) * 6 + 150_000);
+    expect(cex.byStep.profile).toBe(818 * 6_000);
+    // History never scales these entries (the experts are not calibrated; the profile entry is not on the step's base).
+    const calibrated = estimatePipeline(deep, 818, 205, undefined, () => 8, opts);
+    expect([calibrated.byStep.hunt, calibrated.byStep.profile]).toEqual([cex.byStep.hunt, cex.byStep.profile]);
+    // A small repository keeps the floors: 600k per expert, 25k for the profile.
+    const small = estimatePipeline(deep, 4, 1, undefined, undefined, opts);
+    expect([small.byStep.hunt, small.byStep.profile]).toEqual([6 * 600_000 + 150_000, 25_000]);
+  });
 });
+

@@ -201,6 +201,15 @@ describe('a canonical finding of class `other` takes its members\' specific clas
   });
 });
 
+describe('a semantic merge group joins findings of one repository only', () => {
+  it('the SSRF of two services grouped by the model stay two; the same repository still merges', async () => {
+    const { semanticUnions } = await import('../src/steps/reconcile.js');
+    const repo: Record<string, string> = { goProxy: 'go-files', pyFetch: 'fastapi-orders', pyFetch2: 'fastapi-orders' };
+    expect(semanticUnions([['goProxy', 'pyFetch', 'pyFetch2']], (k) => repo[k]!)).toEqual([['pyFetch', 'pyFetch2']]);
+    expect(semanticUnions([['goProxy', 'pyFetch']], (k) => repo[k]!)).toEqual([]);
+  });
+});
+
 describe('deep exploration stagnation ignores replayed rounds', () => {
   it('three replayed rounds after a resume do not stop the loop; new rounds without progress still do', async () => {
     const { nextQuiet } = await import('../src/pipeline/review.js');

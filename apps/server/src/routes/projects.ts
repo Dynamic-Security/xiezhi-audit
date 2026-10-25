@@ -24,7 +24,7 @@ async function gitText(ctx: AppContext, repo: string, sub: string, args: string[
 function blankProbe(sourceKind: RepoProbeDto['sourceKind'], path: string, suggestedName: string): RepoProbeDto {
   return {
     sourceKind, ok: false, path, exists: false, isDirectory: false, hasGit: false, currentBranch: null, headCommit: null, dirty: null, languages: {}, auditable: false,
-    suggestedName, problems: [], remote: null, archive: null,
+    suggestedName, problems: [], refs: [], remote: null, archive: null,
   };
 }
 
@@ -121,6 +121,7 @@ export async function probeRepo(ctx: AppContext, input: string): Promise<RepoPro
     // No `git status` on the user's repository (it runs repository-configured clean filters).
     out.dirty = await worktreeDirty(ctx.engine.executor, real, { timeoutMs: 15_000 });
     if (out.dirty) problems.push('工作区有未提交改动：审计将标注为“工作区版本”');
+    out.refs = await listRefs(ctx, real, undefined, undefined);
   }
   out.languages = scanLocalLanguages(real);
   const a = auditableFrom(out.languages, scanLocalJsBackend(real), scanLocalRustBackend(real));
@@ -167,8 +168,8 @@ export async function listRefs(ctx: AppContext, repoPath: string, kind: string |
   return needle ? refs.filter((r) => r.name.toLowerCase().includes(needle) || r.commit.startsWith(needle) || r.subject.toLowerCase().includes(needle)) : refs;
 }
 
-/** One entry of `POST /projects/{pid}/repos`: probe the source again, validate the ref, add. */
-async function addFromSource(ctx: AppContext, projectId: string, r: { path?: string | undefined; git?: string | undefined; uploadId?: string | undefined; name?: string | undefined; ref?: string | undefined }) {
+/** One entry of `POST /projects/{pid}/repos`: probe the source again, validate the ref, add (also a conversation project card). */
+export async function addFromSource(ctx: AppContext, projectId: string, r: { path?: string | undefined; git?: string | undefined; uploadId?: string | undefined; name?: string | undefined; ref?: string | undefined }) {
   const { store } = ctx;
   const given = [r.path, r.git, r.uploadId].filter((x) => x !== undefined).length;
   if (given !== 1) throw new AppError('COMMON_VALIDATION', 'give exactly one of path, git or uploadId');

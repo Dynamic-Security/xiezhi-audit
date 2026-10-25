@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EntryPoint, StructIndex } from '@xiezhi/contracts';
 import { logicEntries } from '../src/business.js';
-import { candidateResolver, entryScore, type Candidate } from '../src/steps/triage.js';
+import { candidateResolver, entryScore, hasPathParam, type Candidate } from '../src/steps/triage.js';
 
 const c = (id: string, path: string, line: number): Candidate => ({ id, kind: 'entry', repo: 'order-service', path, line, label: id, score: 1 });
 const listed = [
@@ -24,6 +24,20 @@ describe('triage candidate ids', () => {
     expect(resolve('order-service:admin-order-search')).toBeNull();
     const shared = candidateResolver([...listed, c('order-service:sink#L30', 'src/main/java/com/mall/order/web/OrderController.java', 30)]);
     expect(shared('order-service:src/main/java/com/mall/order/web/OrderController.java:30')).toBeNull();
+  });
+});
+
+describe('object ids in HTTP paths', () => {
+  const http = (key: string, tpl: string, auth: string[] = ['@UseGuards(AuthGuard)']) => ({ entryKey: key, pathTemplate: tpl, authSignals: auth }) as unknown as EntryPoint;
+  it('counts a NestJS / Express `:id` like a `{id}`: a gateway\'s by-id routes ranked as plain ones', () => {
+    const nest = http('GET /api/v1/gateway/deposits/{}', '/api/v1/gateway/deposits/:depositId');
+    const spring = http('GET /api/orders/{}', '/api/orders/{id}');
+    const plain = http('GET /api/v1/gateway/deposits', '/api/v1/gateway/deposits');
+    expect(hasPathParam(nest)).toBe(true);
+    expect(entryScore(nest, new Set())).toBe(entryScore(spring, new Set()));
+    expect(entryScore(nest, new Set())).toBeGreaterThan(entryScore(plain, new Set()));
+    // A colon inside a segment is no parameter (`/v1/items:batchGet`, Google-style custom methods).
+    expect(hasPathParam(http('POST /v1/items:batchGet', '/v1/items:batchGet'))).toBe(false);
   });
 });
 

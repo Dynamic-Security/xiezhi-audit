@@ -8,7 +8,7 @@ import { fromJson, type Store } from '@xiezhi/store';
 
 export interface ConversationRow { id: string; title: string; model: string | null; status: 'active' | 'archived'; mentions: string; last_message_at: number | null; pinned_at: number | null; created_at: number; updated_at: number }
 export interface MessageRow {
-  id: string; conversation_id: string; seq: number; role: 'user' | 'assistant'; content: string; refs: string; cards: string; status: 'streaming' | 'complete' | 'interrupted';
+  id: string; conversation_id: string; seq: number; role: 'user' | 'assistant'; content: string; refs: string; attachments: string; cards: string; status: 'streaming' | 'complete' | 'interrupted';
   finish_reason: FinishReason | null; model: string | null; tokens: number; usage: string | null; error: string | null; client_message_id: string | null; reply_to: string | null;
   last_event_seq: number; created_at: number; updated_at: number;
 }

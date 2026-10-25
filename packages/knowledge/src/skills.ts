@@ -21,11 +21,14 @@ export interface AppliesTo { scenes?: string[]; languages?: string[]; frameworks
 /**
  * one item of a checklist written in a skill's frontmatter (`checklist:`). The id is stable (the
  * obligation key is `<skill>:<id>`); `vuln_class` decides the check batch; `applies_to` narrows it to languages and
- * frameworks.
+ * frameworks. `locate` (ripgrep patterns, an optional glob) finds where the item applies; the check lists
+ * the hits and a `covered` conclusion has to cite them, so an item is not settled by reading one unrelated file.
  */
-export interface ChecklistItem { id: string; title: string; check: string; vulnClass: string; appliesTo: Pick<AppliesTo, 'languages' | 'frameworks'> }
+export interface ChecklistItem { id: string; title: string; check: string; vulnClass: string; appliesTo: Pick<AppliesTo, 'languages' | 'frameworks'>; locate?: ChecklistLocate }
+export interface ChecklistLocate { grep: string[]; glob?: string }
 const CHECKLIST_ID_RE = /^[a-z0-9][a-z0-9.-]{0,47}$/;
 const MAX_CHECKLIST_ITEMS = 60;
+const MAX_LOCATE_PATTERNS = 5;
 
 /** Parse and check a frontmatter `checklist` (errors name the item). */
 export function parseChecklist(raw: unknown, errors: string[]): ChecklistItem[] {
@@ -51,9 +54,22 @@ export function parseChecklist(raw: unknown, errors: string[]): ChecklistItem[] 
     if (typeof a !== 'object' || Array.isArray(a)) errors.push(`${at}: applies_to must be an object`);
     for (const k of Object.keys(a)) if (!['languages', 'frameworks'].includes(k)) errors.push(`${at}: applies_to.${k} is not a checklist dimension (languages / frameworks)`);
     const list = (k: 'languages' | 'frameworks') => (Array.isArray(a[k]) ? (a[k] as unknown[]).map(String) : undefined);
-    out.push({ id, title, check, vulnClass: vc, appliesTo: { ...(list('languages') ? { languages: list('languages') } : {}), ...(list('frameworks') ? { frameworks: list('frameworks') } : {}) } });
+    const locate = parseLocate(it.locate, at, errors);
+    out.push({ id, title, check, vulnClass: vc, appliesTo: { ...(list('languages') ? { languages: list('languages') } : {}), ...(list('frameworks') ? { frameworks: list('frameworks') } : {}) }, ...(locate ? { locate } : {}) });
   });
   return out;
+}
+
+function parseLocate(raw: unknown, at: string, errors: string[]): ChecklistLocate | undefined {
+  if (raw === undefined) return undefined;
+  const l = (raw ?? {}) as Record<string, unknown>;
+  if (typeof raw !== 'object' || Array.isArray(raw)) { errors.push(`${at}: locate must be an object`); return undefined; }
+  for (const k of Object.keys(l)) if (!['grep', 'glob'].includes(k)) errors.push(`${at}: locate.${k} is not a locate field (grep / glob)`);
+  const grep = Array.isArray(l.grep) ? (l.grep as unknown[]).map(String) : [];
+  if (!grep.length || grep.length > MAX_LOCATE_PATTERNS) errors.push(`${at}: locate.grep must list 1–${MAX_LOCATE_PATTERNS} patterns`);
+  for (const g of grep) if (!g.trim() || g.length > 200) errors.push(`${at}: locate.grep patterns must be 1–200 characters`);
+  if (l.glob !== undefined && (typeof l.glob !== 'string' || !l.glob.trim())) errors.push(`${at}: locate.glob must be a non-empty string`);
+  return { grep, ...(typeof l.glob === 'string' && l.glob.trim() ? { glob: l.glob } : {}) };
 }
 
 export interface Skill {

@@ -36,6 +36,8 @@ export interface AuditRow {
   conversation_id: string | null;
   /** Start as soon as the plan is ready instead of waiting for a confirmation. */
   auto_start: number;
+  /** Refused model (`provider/model`) → the model the user chose for every later step (JSON). */
+  model_switches: string;
   error_class: ErrorClass | null; queued_at: number | null; started_at: number | null; ended_at: number | null; running_since: number | null;
   created_at: number;
 }
@@ -46,6 +48,16 @@ export interface StepRow {
   reused_from: string | null; model: string | null; provider: string | null; tokens_in: number; tokens_out: number; tokens_cached: number;
   cost_micros: number | null; estimate_tokens: number; retry_at: number | null; error_class: ErrorClass | null; error_summary: string | null;
   started_at: number | null; ended_at: number | null;
+}
+
+/**
+ * A cross lane: one model's run of a crossed task (`<task>-M<n>-<rest>`) or one model's vote on a finding.
+ * Its sibling lanes run the same task on the other cross models.
+ */
+export function isCrossLane(step: Pick<StepRow, 'kind' | 'lineage_id' | 'input'>): boolean {
+  if (/^.*-M\d+-.*$/.test(step.lineage_id ?? '')) return true;
+  const input = JSON.parse(step.input || '{}') as { findingId?: string; vote?: boolean };
+  return step.kind === 'challenge' && !!input.vote && !!input.findingId;
 }
 
 export function getAudit(store: Store, id: string): AuditRow {
@@ -109,6 +121,8 @@ export function transitionAudit(store: Store, id: string, to: AuditStatus, extra
     if (extra.partialReasons) patch.partial_reasons = extra.partialReasons;
     if (extra.errorClass !== undefined) patch.error_class = extra.errorClass;
     store.update('audit', { id }, patch);
+    // A cancelled audit asks nothing any more: its open questions leave "待我处理" (a completed audit keeps them).
+    if (to === 'cancelled') store.update('question', { audit_id: id, status: 'open' }, { status: 'expired', answered_at: now });
     store.appendEvent(id, 'audit.status_changed', {
       from: a.status, to, ...(extra.reason ? { reason: extra.reason } : {}),
       ...(extra.partialReasons ? { partial_reasons: extra.partialReasons } : {}),
@@ -139,6 +153,11 @@ export const NOT_STARTED: readonly string[] = ['pending', 'ready', 'blocked_budg
 
 /** error_summary marker for steps skipped by a user intervention (→ USER_SKIPPED). */
 export const USER_SKIPPED_MARK = 'skipped by user';
+/**
+ * error_summary prefix for steps that never ran because the budget was declined, the running time was used up or the
+ * audit ended first: on a mainline stage they leave the audit partial.
+ */
+export const NOT_RUN_MARK = 'not run: ';
 
 const TERMINAL_STEP = new Set<StepStatus>(['succeeded', 'failed', 'skipped', 'cancelled']);
 export function isStepTerminal(s: StepStatus): boolean {

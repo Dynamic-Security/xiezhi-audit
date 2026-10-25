@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   AuditStrategy, DEFAULT_BUDGET_SHARES, check, checkStrategy, mergeStrategy, sceneDefaults, upgradeStrategy, stageFallback, stageModel, strategyHash, sortPartialReasons,
-  resolveCategory, redact, SubmitFindings, placeholderPendingIssues, type PendingCondition, ulid, canonicalJson, AppConfig, defaultAppConfig, maskSecret, upgradeConfig, configStageModel,
+  resolveCategory, redact, SubmitFindings, SubmitPlan, AskUser, answerOptions, contextItem, placeholderPendingIssues, type PendingCondition, ulid, canonicalJson, AppConfig, defaultAppConfig, maskSecret, upgradeConfig, configStageModel,
+  parseTopUpMillions, topUpMillionsArg, TOP_UP_TOKENS_MAX,
 } from '@xiezhi/contracts';
+import type { TSchema } from 'typebox';
 
 const M = { provider: 'gw', model: 'big' };
 const C = { provider: 'gw', model: 'small' };
@@ -100,10 +102,12 @@ describe('strategy', () => {
     expect(checkStrategy(deep, 'full', known)).toEqual([]);
     // Risk hunting is implemented: its own defaults are valid.
     expect(checkStrategy(sceneDefaults('risk_hunt', { defaultModel: M }), 'risk_hunt', known)).toEqual([]);
-    // Incremental is implemented; diff-seeded variant search is not.
+    // Incremental is implemented; the diff-seeded variant search was removed: an old frozen
+    // strategy that still carries it reads without it.
     const inc = sceneDefaults('incremental', { defaultModel: M });
     expect(checkStrategy(inc, 'incremental', known)).toEqual([]);
-    expect(checkStrategy({ ...inc, impact: { ...inc.impact, variantSearch: true } }, 'incremental', known)).toEqual([]);
+    expect(inc.impact).not.toHaveProperty('variantSearch');
+    expect(upgradeStrategy({ ...inc, impact: { ...inc.impact, variantSearch: true } }).impact).toEqual(inc.impact);
   });
 
   it('stage models: a task layer replaces a stage model whole; the scene layer sets no models and no layer sets per-stage fallbacks', () => {
@@ -200,5 +204,42 @@ describe('misc', () => {
   });
   it('default config is schema-valid', () => {
     expect(check(AppConfig, defaultAppConfig()).ok).toBe(true);
+  });
+});
+
+describe('suggested answers with questions', () => {
+  const ok = (schema: TSchema, v: unknown) => check(schema, v).ok;
+  it('submit_plan context items carry 2–4 short options; ask_user takes the same', () => {
+    const plan = (contextNeeded: unknown[]) => ({ summary: 's', focusDirections: [], plannedKnowledge: [], contextNeeded, limitations: [] });
+    expect(ok(SubmitPlan, plan([{ question: '内部服务是否只对网关开放？', options: ['是，仅网关可达', '否，部分可直接访问', '不确定'] }]))).toBe(true);
+    expect(ok(SubmitPlan, plan([{ question: '部署方式？' }]))).toBe(true); // open-ended: no options
+    expect(ok(SubmitPlan, plan([{ question: 'q', options: ['只有一个'] }]))).toBe(false);
+    expect(ok(SubmitPlan, plan([{ question: 'q', options: ['a', 'b', 'c', 'd', 'e'] }]))).toBe(false);
+    expect(ok(SubmitPlan, plan([{ question: 'q', options: ['a', 'x'.repeat(41)] }]))).toBe(false);
+    expect(ok(AskUser, { question: 'q', blocking: false, options: ['是', '否'] })).toBe(true);
+    expect(ok(AskUser, { question: 'q', blocking: false })).toBe(true);
+    // Older stored plans hold strings.
+    expect(contextItem('网关是否做鉴权')).toEqual({ question: '网关是否做鉴权' });
+    expect(answerOptions([' 是 ', '是', '否', ''])).toEqual(['是', '否']);
+    expect(answerOptions(['是', '是'])).toBeNull();
+    expect(answerOptions(undefined)).toBeNull();
+  });
+});
+
+describe('top-up amount in M', () => {
+  it('parses 1–10000M, with an optional M suffix and decimals', () => {
+    expect(parseTopUpMillions('5')).toBe(5_000_000);
+    expect(parseTopUpMillions(' 2.5m ')).toBe(2_500_000);
+    expect(parseTopUpMillions('1')).toBe(1_000_000);
+    expect(parseTopUpMillions('10000M')).toBe(TOP_UP_TOKENS_MAX);
+  });
+  it('rejects what the API would: not a number, zero, negative, below 1M, above 10000M', () => {
+    for (const t of ['', 'abc', '0', '-5', '0.5', '10000.01', '1e3', '5MM', 'Infinity']) expect(parseTopUpMillions(t), t).toBeUndefined();
+  });
+  it('suggests an argument in M, rounded up to 0.01M and at least 1M', () => {
+    expect(topUpMillionsArg(2_345_678)).toBe('2.35');
+    expect(topUpMillionsArg(12_000)).toBe('1');
+    expect(topUpMillionsArg(0)).toBe('1');
+    expect(parseTopUpMillions(topUpMillionsArg(7_777_777))).toBe(7_780_000);
   });
 });

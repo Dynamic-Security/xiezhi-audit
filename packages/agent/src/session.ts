@@ -3,6 +3,7 @@
 import {
   createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, defineTool, type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
+import type { ImageContent } from '@earendil-works/pi-ai';
 import { existsSync } from 'node:fs';
 import type { TSchema } from 'typebox';
 import { check, type ErrorClass, type ModelRef } from '@xiezhi/contracts';
@@ -70,6 +71,8 @@ export interface SessionSpec {
   agentDir: string;
   systemPrompt: string;
   prompt: string;
+  /** Images sent with the prompt (conversation attachments); not with a resumed session's prompt. */
+  images?: ImageContent[];
   tools: AuditTool[];
   /** Submit tools that must be called successfully at least once before the session may end. */
   requiredSubmits: string[];
@@ -530,7 +533,7 @@ export function startSession(spec: SessionSpec): SessionHandle {
     if (spec.signal?.aborted) onAbort();
     spec.signal?.addEventListener('abort', onAbort, { once: true });
     try {
-      if (!status) await session.prompt(resumed ? (spec.resumePrompt ?? resumePrompt()) : spec.prompt);
+      if (!status) await session.prompt(resumed ? (spec.resumePrompt ?? resumePrompt()) : spec.prompt, !resumed && spec.images?.length ? { images: spec.images } : undefined);
     } catch (e) {
       if (!status) { status = 'error'; errorMessage = (e as Error).message; errorClass = classifyProviderError(errorMessage, (lastAssistant as { text?: string } | null)?.text); }
     } finally {

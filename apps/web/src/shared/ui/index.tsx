@@ -1,12 +1,14 @@
 // Shared UI components: Button, Badge/StatusBadge, Dialog/ConfirmDialog (focus trap,
 // focus return, no native confirm), Toast (errors carry requestId), EmptyState, Tabs, CodeView.
 import {
-  createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState,
+  createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
   type ButtonHTMLAttributes, type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { ApiError } from '../api/client';
 import { useGeneral } from '../api/queries';
 import { formatCost, tokenCost } from '../format/cost';
+import { fromMillions, toMillions } from '../format/tokens';
 import { AUDIT_STATUS, CONFIRM, HANDLING, LIFECYCLE, SEVERITY } from '../format/messages';
 import { Icon, type IconName } from './icons';
 import s from './ui.module.css';
@@ -297,6 +299,39 @@ export function CodeView({ lines, from, highlight, title, actions, maxHeight = 4
   );
 }
 
+/**
+ * An ⓘ next to a setting: shows what it means on hover, focus or click (in a portal above dialogs, so scroll areas
+ * neither clip nor cover it).
+ */
+export function InfoTip({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open || !btn.current) { setPos(null); return; }
+    const r = btn.current.getBoundingClientRect();
+    const w = Math.min(300, window.innerWidth - 32);
+    setPos({ top: r.bottom + 6, left: Math.max(16, Math.min(r.left - w / 2 + r.width / 2, window.innerWidth - w - 16)) });
+  }, [open]);
+  useEffect(() => {
+    if (!pinned) return;
+    const onDown = (e: MouseEvent) => { if (!btn.current?.contains(e.target as Node)) { setPinned(false); setOpen(false); } };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [pinned]);
+  return (
+    <>
+      <button ref={btn} type="button" className={s.infoBtn} aria-label={label} aria-expanded={open}
+        onMouseEnter={() => setOpen(true)} onMouseLeave={() => { if (!pinned) setOpen(false); }} onFocus={() => setOpen(true)} onBlur={() => { if (!pinned) setOpen(false); }}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPinned(!pinned); setOpen(!pinned); }}>
+        <Icon name="info" size={13} />
+      </button>
+      {open && pos && createPortal(<div role="tooltip" className={s.infoPop} style={{ top: pos.top, left: pos.left }}>{children}</div>, document.body)}
+    </>
+  );
+}
+
 /** Close on outside click / Escape for small popovers. */
 export function useDismiss(open: boolean, onClose: () => void) {
   const ref = useRef<HTMLDivElement>(null);
@@ -348,11 +383,19 @@ export function useStickToBottom<S extends HTMLElement, C extends HTMLElement>()
       const at = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
       if (at !== pinnedRef.current) { pinnedRef.current = at; setPinned(at); }
     };
-    const grow = new ResizeObserver(() => { if (pinnedRef.current) el.scrollTop = el.scrollHeight; });
+    // While the mouse is held in the thread or text in it is selected, live content (an audit's progress,
+    // its questions) must not move the text under the cursor: following the bottom then made selecting a question fail.
+    let holding = false;
+    const down = () => { holding = true; };
+    const up = () => { holding = false; };
+    const selecting = () => { const sel = document.getSelection(); return !!sel && !sel.isCollapsed && !!sel.anchorNode && content.contains(sel.anchorNode); };
+    const grow = new ResizeObserver(() => { if (pinnedRef.current && !holding && !selecting()) el.scrollTop = el.scrollHeight; });
     el.addEventListener('scroll', onScroll, { passive: true });
+    el.addEventListener('pointerdown', down);
+    window.addEventListener('pointerup', up);
     grow.observe(content);
     el.scrollTop = el.scrollHeight;
-    return () => { el.removeEventListener('scroll', onScroll); grow.disconnect(); };
+    return () => { el.removeEventListener('scroll', onScroll); el.removeEventListener('pointerdown', down); window.removeEventListener('pointerup', up); grow.disconnect(); };
   }, []);
   return { scrollRef, contentRef, pinned, toBottom };
 }
@@ -361,6 +404,21 @@ export function useStickToBottom<S extends HTMLElement, C extends HTMLElement>()
  * Approximate cost next to a token amount. Budgets stay in tokens; this only helps judge them.
  * Without a price for the model the cost shows as unknown, marked "价格缺失".
  */
+/** A token amount typed in millions (M); `value` and `onChange` are in tokens ('' when empty or not a number). */
+export function TokenInput({ value, onChange, placeholder }: { value: number | ''; onChange: (tokens: number | '') => void; placeholder?: number }) {
+  const [text, setText] = useState(() => toMillions(value));
+  // Follow values set from outside (loaded defaults, suggested top-ups) without rewriting what the user is typing.
+  useEffect(() => { if (fromMillions(text) !== value) setText(toMillions(value)); }, [value]);
+  return (
+    <span className={s.unitInput}>
+      <input className={s.input} type="number" min={0} step="any" inputMode="decimal" value={text}
+        placeholder={placeholder ? toMillions(placeholder) : undefined}
+        onChange={(e) => { setText(e.target.value); onChange(fromMillions(e.target.value)); }} />
+      <span className={s.unit} title="百万 tokens" aria-hidden>M</span>
+    </span>
+  );
+}
+
 export function TokenCostHint({ tokens, model }: { tokens: number; model: { provider: string; model: string } | null | undefined }) {
   const general = useGeneral();
   if (!tokens || tokens <= 0) return null;

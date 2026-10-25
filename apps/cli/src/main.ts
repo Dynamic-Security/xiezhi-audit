@@ -5,7 +5,7 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { AppError, appVersion, BUDGET_STAGES, CONFIG_MODEL_STAGES, NO_MODEL_STAGES, maskSecret, originOf, type AppConfig, type BudgetStage, type ModelApi, type SkillCategory } from '@xiezhi/contracts';
+import { AppError, appVersion, BUDGET_STAGES, CONFIG_MODEL_STAGES, NO_MODEL_STAGES, maskSecret, originOf, TOOL_PATH_KEYS, type AppConfig, type BudgetStage, type ModelApi, type SkillCategory } from '@xiezhi/contracts';
 import { Store, resolveDataDir } from '@xiezhi/store';
 import {
   Engine, renderThreatModelReport, approveKnowledgeDraft, findDraft, listAllDrafts, rejectKnowledgeDraft, addArchiveRepository, addGitRepository, addRepository, answerQuestion, createHunt, getBasis, getHunt, huntPlan, huntTargets, refreshHunt, createProject, getAudit, getProject, listProjects, listRepositories, runDoctor, type AuditPlan, type RunResult, queries as Q,
@@ -13,14 +13,14 @@ import {
 import { exportAudit, type ExportFormat } from '@xiezhi/report';
 import { caseIndexBody, installBuiltinSkills, listKnowledge, readSkill, scanLayer } from '@xiezhi/knowledge';
 import { Recorder, Replayer, listModels, piVersion, promptTemplateHash, withProbedLimits, type ModelMode } from '@xiezhi/agent';
-import { collectSecrets, toolSchemaHash } from '@xiezhi/contracts';
+import { collectSecrets, contextItem, formatTokens, toolSchemaHash, topUpMillionsArg } from '@xiezhi/contracts';
 import { startServer, DEFAULT_PORT, draftDto } from '@xiezhi/server';
 import { knowledgeWriteCommand } from './knowledge.js';
 import { errorText as evalErrorText, main as evalMain } from '@xiezhi/eval';
 import { Executor, openBrowser } from '@xiezhi/context';
 import { CliExit, EXIT_ERROR, EXIT_INCOMPLETE, EXIT_OK, confirm, errorLine, print, printJson, questionPrompter, readSecret, rejectSecretArgs } from './io.js';
 import { RemoteError, discover, findProject, remoteCommand } from './remote.js';
-import { modeArgs } from './modes.js';
+import { addTokensArg, baseArgs, incrementalLines, modeArgs } from './modes.js';
 import { huntCommand } from './hunt.js';
 
 
@@ -32,8 +32,8 @@ const HELP = `xiezhi — 代码安全审计
   open                                              服务运行中时，生成新的一次性浏览器登录链接
   doctor [--json]                                   环境诊断
   version                                           显示版本
-  config list | get <key> | set <key> <value>       配置（defaultModel / fallbackModel 用 provider/model；
-                                                    stageModels.<阶段> 用 provider/model、default 或 none）
+  config list | get <key> | set <key> <value>       配置（defaultModel / fallbackModel 用 provider/model，fallbackModel 设为 none 即不切换；
+                                                    stageModels.<阶段> 用 provider/model、default 或 none；concurrency.audits 为同时运行的审计数 1–8）
   config add-provider <id> --api <api> --base-url <url> --models a,b [--context-window N] [--max-tokens N]
                                                     读取服务端模型列表中的上下文窗口 / 最大输出（若有）；
                                                     --context-window / --max-tokens 对所列模型统一设置（支持 200k 写法）
@@ -50,11 +50,12 @@ const HELP = `xiezhi — 代码安全审计
   audit start --project <p> [--scene full|incremental] [--base <ref>] [--repo <r>] [--ref <ref>] [--strategy <file.json>] [--title <t>] [--yes] [--wait]
              [--related <r1,r2>] | [--mode multi [--repos <r1,r2>]]
                                                     单仓库审计可加关联仓库（只作证据）；多仓库合并审计默认包含全部可审计仓库
-                                                    增量审计默认对比上次审计的版本，--base 指定任意分支或提交
+                                                    增量审计默认对比上次审计的版本，--base 指定任意分支或提交；
+                                                    多仓库增量写成 --base r1=<ref>,r2=<ref>，没有审计过也没指定的仓库按全量审计
              [--threat-model <id> …]                关联需求威胁模型（可重复；全量或增量审计）
   audit status <auditId> [--json] [--follow]          --wait / --follow 只在客户端模式（服务运行时）有效
   audit list [--project <p>]
-  audit resume <auditId> [--add-tokens N [--stage S]] [--no-stage-quotas] [--decline-budget] [--restart-filtered]
+  audit resume <auditId> [--add-tokens N(M) [--stage S]] [--no-stage-quotas] [--decline-budget] [--restart-filtered]
                                                     --restart-filtered：被内容过滤拦截的步骤从头开始（不加则原样重试）
   audit cancel <auditId>
   export <auditId> --format md|html|json|sarif --out <path> [--no-snippets] [--no-local-roots]
@@ -108,14 +109,11 @@ function printPlan(plan: AuditPlan): void {
   print('— 审计计划 —');
   print(plan.submitted.summary);
   print(`规模：文件 ${plan.scale.files}，入口 ${plan.scale.entrypoints}，危险点 ${plan.scale.sinks}，候选 ${plan.scale.candidates}`);
-  if (plan.incremental) {
-    const i = plan.incremental;
-    print(`增量：对比 ${i.base.ref ?? (i.base.commit ? i.base.commit.slice(0, 12) : '上次审计的版本')}；变更文件 新增 ${i.changedFiles.added} / 修改 ${i.changedFiles.modified} / 删除 ${i.changedFiles.deleted} / 移动 ${i.changedFiles.renamed}；影响分析 ${i.mode}${i.fallbackReasons.length ? `（${i.fallbackReasons.join(', ')}）` : ''}`);
-  }
+  if (plan.incremental) for (const l of incrementalLines(plan.incremental)) print(l);
   for (const d of plan.submitted.focusDirections) print(`  重点：${d.direction} — ${d.reason}`);
-  if (plan.submitted.contextNeeded.length) print(`待补充上下文：${plan.submitted.contextNeeded.join('；')}`);
+  if (plan.submitted.contextNeeded.length) print(`待补充上下文：${plan.submitted.contextNeeded.map((c) => contextItem(c).question).join('；')}`);
   const e = plan.estimate;
-  print(`预估：${e.tokens.p50}–${e.tokens.p90} tokens，${Math.round(e.durationSec.p50 / 60)}–${Math.round(e.durationSec.p90 / 60)} 分钟${e.cost ? `，成本 ${e.cost.p50.toFixed(2)}–${e.cost.p90.toFixed(2)} ${e.cost.currency}` : '，成本未知'}`);
+  print(`预估：${formatTokens(e.tokens.p50)}–${formatTokens(e.tokens.p90)} tokens，${Math.round(e.durationSec.p50 / 60)}–${Math.round(e.durationSec.p90 / 60)} 分钟${e.cost ? `，成本 ${e.cost.p50.toFixed(2)}–${e.cost.p90.toFixed(2)} ${e.cost.currency}` : '，成本未知'}`);
   for (const l of plan.limitations) print(`  限制：${l}`);
 }
 
@@ -125,7 +123,7 @@ function resultExit(r: RunResult | { status: string; partialReasons: string[] },
   if (r.status === 'completed') return EXIT_OK;
   if (r.status === 'waiting_budget') {
     const s = (r as RunResult).suggestedTopUp;
-    print(`预算不足。追加后继续：xiezhi audit resume ${auditId} --add-tokens ${s ?? 100000}`);
+    print(`预算不足。追加后继续：xiezhi audit resume ${auditId} --add-tokens ${topUpMillionsArg(s ?? 0)}`);
     print(`或放弃并用已有结果收尾：xiezhi audit resume ${auditId} --decline-budget`);
   }
   if (r.status === 'interrupted') print(`已中断，可继续：xiezhi audit resume ${auditId}`);
@@ -179,7 +177,7 @@ async function runQueueInteractive(store: Store, engine: Engine) {
 function topUpDelta(values: { 'add-tokens'?: string; stage?: string }): { tokens: number; stage?: BudgetStage } {
   const stage = values.stage;
   if (stage !== undefined && !(BUDGET_STAGES as readonly string[]).includes(stage)) throw new CliExit(EXIT_ERROR, `--stage 只能是 ${BUDGET_STAGES.join(' / ')}`);
-  return { tokens: Number(values['add-tokens']), ...(stage ? { stage: stage as BudgetStage } : {}) };
+  return { tokens: addTokensArg(values['add-tokens'] ?? ''), ...(stage ? { stage: stage as BudgetStage } : {}) };
 }
 
 /** `--threat-model <id>` (repeatable): the requirement threat models the audit references. */
@@ -238,8 +236,8 @@ async function cmdAudit(sub: string | undefined, args: string[], dataDir?: strin
       const eff = JSON.parse(s.audit.budget_effective) as { tokens: number };
       print(`${s.audit.id}  ${s.audit.title}`);
       print(`状态：${s.audit.status}${JSON.parse(s.audit.partial_reasons).length ? `（${JSON.parse(s.audit.partial_reasons).join(' > ')}）` : ''}`);
-      print(`预算：${consumed.tokens}/${eff.tokens} tokens`);
-      for (const st of s.steps) print(`  ${st.kind.padEnd(10)} ${st.status.padEnd(14)} attempt=${st.attempt} tokens=${st.tokens}${st.error ? ` ${st.error}` : ''}`);
+      print(`预算：${formatTokens(consumed.tokens)}/${formatTokens(eff.tokens)} tokens`);
+      for (const st of s.steps) print(`  ${st.kind.padEnd(10)} ${st.status.padEnd(14)} attempt=${st.attempt} tokens=${formatTokens(st.tokens)}${st.error ? ` ${st.error}` : ''}`);
       return EXIT_OK;
     }
     if (sub === 'cancel') {
@@ -254,7 +252,7 @@ async function cmdAudit(sub: string | undefined, args: string[], dataDir?: strin
       const override = withThreatModelArgs(values.strategy ? JSON.parse(readFileSync(resolve(values.strategy), 'utf8')) as Record<string, unknown> : undefined, values['threat-model']);
       const id = engine.createAudit({
         projectId: project.id, origin: 'cli', ...(values.repo ? { repository: values.repo } : {}), ...(values.ref ? { ref: values.ref } : {}),
-        ...(values.scene ? { scene: values.scene as 'full' | 'incremental' } : {}), ...(values.base ? { baseRef: values.base } : {}),
+        ...(values.scene ? { scene: values.scene as 'full' | 'incremental' } : {}), ...baseArgs(values.mode, values.base),
         ...(values.title ? { title: values.title } : {}), ...(override ? { strategyOverride: override } : {}),
         ...modeArgs(values.mode, values.repos, values.related),
       });
@@ -288,11 +286,11 @@ async function cmdAudit(sub: string | undefined, args: string[], dataDir?: strin
       const off = onEvents(store);
       try {
         // --no-stage-quotas drops the audit's stage quotas (with --add-tokens, in the same grant).
-        if (values['no-stage-quotas']) engine.topUp(id, { ...(values['add-tokens'] ? { tokens: Number(values['add-tokens']) } : {}), liftStageQuotas: true }, `cli-${id}-${a.budget_effective}-lift-${values['add-tokens'] ?? ''}`);
+        if (values['no-stage-quotas']) engine.topUp(id, { ...(values['add-tokens'] ? { tokens: addTokensArg(values['add-tokens']) } : {}), liftStageQuotas: true }, `cli-${id}-${a.budget_effective}-lift-${values['add-tokens'] ?? ''}`);
         else if (a.status === 'waiting_budget') {
           if (values['decline-budget']) engine.declineBudget(id);
           else if (values['add-tokens']) engine.topUp(id, topUpDelta(values), `cli-${id}-${a.budget_effective}-${values['add-tokens']}-${values.stage ?? ''}`);
-          else throw new CliExit(EXIT_ERROR, '审计在等待预算：使用 --add-tokens N 追加、--no-stage-quotas 取消阶段额度，或 --decline-budget 用已有结果收尾');
+          else throw new CliExit(EXIT_ERROR, '审计在等待预算：使用 --add-tokens N 追加 N M tokens、--no-stage-quotas 取消阶段额度，或 --decline-budget 用已有结果收尾');
         } else if (values['add-tokens']) {
           engine.topUp(id, topUpDelta(values), `cli-${id}-${a.budget_effective}-${values['add-tokens']}-${values.stage ?? ''}`);
         }
@@ -364,7 +362,7 @@ async function cmdProject(sub: string | undefined, args: string[], dataDir?: str
 
 function printAnalysis(store: Store, id: string): void {
   const a = Q.projectAnalysis(store, id)!;
-  print(`分析 ${id}：${a.status}${a.reason ? `（${a.reason}）` : ''}${a.model ? ` · 模型 ${a.model} · ${a.tokens_in + a.tokens_out} tokens` : ''}`);
+  print(`分析 ${id}：${a.status}${a.reason ? `（${a.reason}）` : ''}${a.model ? ` · 模型 ${a.model} · ${formatTokens(a.tokens_in + a.tokens_out)} tokens` : ''}`);
   for (const r of Q.analysisRoleRows(store, id)) {
     print(`  ${r.name}  ${r.status}  角色 ${r.role}${r.role_source === 'user' ? '（人工修正，未覆盖）' : ''}${r.error ? `  ${r.error}` : ''}`);
   }
@@ -391,8 +389,13 @@ export function gitHostArg(raw: string | undefined): string {
 
 const SETTABLE: Record<string, (cfg: AppConfig, v: string) => AppConfig> = {
   defaultModel: (c, v) => ({ ...c, defaultModel: modelRef(v) }),
-  fallbackModel: (c, v) => ({ ...c, fallbackModel: modelRef(v) }),
-  // per-stage models — provider/model, `none` (triage / merge only) or `default` (follow the default model).
+  // `none`: no fallback model (the configuration's default); the schema makes the key optional.
+  fallbackModel: (c, v) => {
+    if (v !== 'none') return { ...c, fallbackModel: modelRef(v) };
+    const { fallbackModel: _dropped, ...rest } = c;
+    return rest as AppConfig;
+  },
+  // Per-stage models — provider/model, `none` (triage / merge only) or `default` (follow the default model).
   ...Object.fromEntries(CONFIG_MODEL_STAGES.map((k) => [`stageModels.${k}`, (c: AppConfig, v: string): AppConfig => {
     const sm: Record<string, unknown> = { ...(c.stageModels ?? {}) };
     if (v === 'default') delete sm[k];
@@ -402,12 +405,18 @@ const SETTABLE: Record<string, (cfg: AppConfig, v: string) => AppConfig> = {
     } else sm[k] = modelRef(v);
     return { ...c, stageModels: sm as AppConfig['stageModels'] };
   }])),
+  'concurrency.audits': (c, v) => ({ ...c, concurrency: { ...c.concurrency, audits: Number(v) } }),
   'concurrency.modelRequests': (c, v) => ({ ...c, concurrency: { ...c.concurrency, modelRequests: Number(v) } }),
   'engine.budgetTolerance': (c, v) => ({ ...c, engine: { ...c.engine, budgetTolerance: Number(v) } }),
   'export.snippets': (c, v) => ({ ...c, export: { ...c.export, snippets: v === 'true' } }),
   'export.localRoots': (c, v) => ({ ...c, export: { ...c.export, localRoots: v === 'true' } }),
-  'tools.rgPath': (c, v) => ({ ...c, tools: { ...c.tools, rgPath: v } }),
-  'tools.gitPath': (c, v) => ({ ...c, tools: { ...c.tools, gitPath: v } }),
+  // External tools, language servers included: doctor and the plan's known limits point here ("tools.tsLspPath"); `none` clears.
+  ...Object.fromEntries(TOOL_PATH_KEYS.map((k) => [`tools.${k}`, (c: AppConfig, v: string): AppConfig => {
+    const tools: Record<string, unknown> = { ...c.tools };
+    if (v === 'none') delete tools[k];
+    else tools[k] = v;
+    return { ...c, tools: tools as AppConfig['tools'] };
+  }])),
 };
 
 function modelRef(v: string) {

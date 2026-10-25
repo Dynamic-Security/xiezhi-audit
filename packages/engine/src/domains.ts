@@ -14,8 +14,8 @@ import type { AuditRuntime } from './runtime.js';
 import { sessionError, type AttemptContext, type StepResult } from './step-runner.js';
 import { UNCOVERED_FINDING_PREFIX, applyHunt, stateFor, stateQueryTool, taskTool, uncoveredFindingTargets, validateCodeRef, validateFindings, verdictsOf, type HuntOutput } from './steps/hunt.js';
 import { auditSystemModel, renderSystemModel, renderThreatModel } from './steps/profile.js';
-import { diffTool } from './steps/scope.js';
-import type { Candidate } from './steps/triage.js';
+import { changedFileList, diffTool } from './steps/scope.js';
+import { hasPathParam, type Candidate } from './steps/triage.js';
 import { backfillScope } from './steps/coverage-gap.js';
 import { profileFor, relatedOf, supplementScope, verdictIssues, verificationLines, type PriorConclusions } from './threat.js';
 import { linkedThreatModels, relatedRiskIssues, withRelatedRisk } from './threat-model-audit.js';
@@ -235,7 +235,7 @@ export function domainLeads(domains: PlannedDomain[], candidates: Candidate[], i
     else if (c.kind === 'entry') {
       const entry = indexes.get(c.repo)?.entrypoints.find((e) => e.entryId === c.id);
       const key = entry?.entryKey ?? c.label;
-      const sensitive = STATE_CHANGING.test(key) || (entry?.pathTemplate ?? '').includes('{') || /mutation/i.test(key);
+      const sensitive = STATE_CHANGING.test(key) || (entry ? hasPathParam(entry) : false) || /mutation/i.test(key);
       targets = [...covering('authz_object'), ...covering('authz_function'), ...covering('authn'), ...(sensitive ? covering('business_logic') : [])];
     }
     // A multi-repository audit has each repository's domains; a candidate goes to the covering domains of its
@@ -353,8 +353,8 @@ function candidateLine(c: Candidate): string {
 
 /** Prompt of one expert round. */
 export function expertPrompt(rt: AuditRuntime, d: PlannedDomain, round: number, leads: Candidate[], o: Pick<DomainExpertOptions, 'previous' | 'others' | 'hypotheses' | 'prior' | 'access' | 'dependencies' | 'task'>): string {
-  const impact = rt.audit.scene === 'incremental' ? rt.impact() : null;
-  const changed = impact ? [...impact.changedFiles.added, ...impact.changedFiles.modified, ...impact.changedFiles.renamed.map((r) => r.to)] : [];
+  const impact = rt.audit.scene === 'incremental' && rt.impacts().size ? rt.impacts() : null;
+  const changed = impact ? changedFileList(rt, impact) : [];
   return [
     P('domains.expert.intro', { name: d.name, round, maxRounds: DOMAIN_ROUNDS }),
     '',
@@ -559,7 +559,7 @@ export async function domainExpertStep(rt: AuditRuntime, d: PlannedDomain, round
     description: P('tool.submit_state_update.domain'),
     run: () => ({ text: 'recorded' }),
   };
-  const impact = rt.audit.scene === 'incremental' ? rt.impact() : null;
+  const impact = rt.audit.scene === 'incremental' && rt.impacts().size ? rt.impacts() : null;
   const model = o.model ?? rt.strategy.models.audit;
   const repo = domainRepo(d, leads);
   const outcome = await rt.session({

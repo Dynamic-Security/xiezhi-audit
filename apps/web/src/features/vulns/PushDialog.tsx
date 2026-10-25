@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { PushDto } from '@xiezhi/contracts';
 import { api } from '../../shared/api/client';
 import { usePushGuides } from '../../shared/api/queries';
+import { fmt } from '../../shared/format/messages';
 import { Badge, Button, Dialog, EmptyState, Field, cx, ui } from '../../shared/ui';
 
 const ACTION: Record<string, string> = { create: '新建', update: '更新', skip: '跳过' };
@@ -73,7 +74,7 @@ export function PushDialog({ open, onClose, projectId, vulns }: { open: boolean;
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {awaiting && <div className={ui.banner} role="note">需要确认后才会写入 {res.connectorName}：{res.confirmReasons.join('；') || '你选择了先预览'}。确认在 5 分钟内有效。</div>}
-          {res.tokens > 0 && <div className={ui.faint} style={{ fontSize: 12 }}>参数由对话模型按指引填写（{res.tokens} tokens），请核对。</div>}
+          {res.tokens > 0 && <div className={ui.faint} style={{ fontSize: 12 }}>参数由对话模型按指引填写（{fmt.tokens(res.tokens)} tokens），请核对。</div>}
           {res.items.map((i) => (
             <div key={i.vulnId} className={ui.card} style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }} aria-label={`推送 V-${i.displayNo}`}>
               <div className={cx(ui.row, ui.wrap)} style={{ gap: 6 }}>

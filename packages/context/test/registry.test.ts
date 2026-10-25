@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { auditLanguagesOf, isJsBackend, isTestPath, KNOWLEDGE_FRAMEWORKS, KNOWLEDGE_LANGUAGES } from '@xiezhi/contracts';
 import {
   auditLanguagesOfView, computeRepoSignals, configurationFor, createSnapshot, Executor, GRAMMARS, initializationOptions, LANGUAGE_PLUGINS, loadLanguage,
-  loadRules, prepareWorkspace, PYRIGHT_NO_INTERPRETER, serverCommand, SnapshotView, LSP_BINARIES,
+  loadRules, prepareWorkspace, PYRIGHT_NO_INTERPRETER, serverCommand, SnapshotView, LSP_BINARIES, LSP_LANGUAGES, validateService,
 } from '@xiezhi/context';
 
 async function viewOf(files: Record<string, string>) {
@@ -100,5 +100,15 @@ describe('language servers', () => {
     expect(JSON.parse(readFileSync(join(ws, 'pyrightconfig.json'), 'utf8')).pythonPath).toBe(PYRIGHT_NO_INTERPRETER);
     expect(existsSync(join(ws, 'app/views.py'))).toBe(true);
     expect(existsSync(join(ws, 'sitecustomize.txt'))).toBe(false);
+  });
+});
+
+describe('language server environment', () => {
+  it('every server command passes the service executor\'s environment check (NODE_OPTIONS kept the TS server from starting)', () => {
+    for (const language of LSP_LANGUAGES) {
+      const { args, env } = serverCommand(language, '/tmp/x');
+      expect(() => validateService({ file: process.execPath, args, env, cwd: '/tmp/x' }), language).not.toThrow();
+    }
+    expect(initializationOptions('typescript')).toMatchObject({ maxTsServerMemory: 3072 });
   });
 });

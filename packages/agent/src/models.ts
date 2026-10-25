@@ -46,13 +46,13 @@ export class ModelHub {
   private async register(): Promise<void> {
     for (const p of this.config.modelProviders) {
       const models = p.models.map((m) => ({
-        id: m.id, name: m.name ?? m.id, reasoning: m.reasoning ?? false, input: ['text' as const],
+        id: m.id, name: m.name ?? m.id, reasoning: m.reasoning ?? false, input: m.images === false ? ['text' as const] : ['text' as const, 'image' as const],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: m.contextWindow ?? DEFAULT_CONTEXT_WINDOW, maxTokens: m.maxTokens ?? DEFAULT_MAX_TOKENS,
       }));
       if (this.mode.kind === 'replay') {
         const replayer = this.mode.replayer;
-        const faux = fauxProvider({ provider: p.id, models: models.map((m) => ({ id: m.id, contextWindow: m.contextWindow, maxTokens: m.maxTokens })) });
+        const faux = fauxProvider({ provider: p.id, models: models.map((m) => ({ id: m.id, input: m.input, contextWindow: m.contextWindow, maxTokens: m.maxTokens })) });
         const respond = (ctx: { messages?: unknown[] }) => {
           try {
             return replayer.next(ctx) as AssistantMessage;

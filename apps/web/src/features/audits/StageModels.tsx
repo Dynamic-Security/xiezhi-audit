@@ -1,11 +1,14 @@
 // Per-stage models, thinking levels and cross review (per-stage cross).
 // the stage table's defaults live in settings → 模型 (default model + per-stage models, one
 // fallback); this editor is a new audit's “各阶段模型” (the task override's differences), and the cross-review part
-// is also used by the scene defaults. Every stage has a “?” with its role and tasks.
+// is also used by the scene defaults. Every stage has an ⓘ with its role and tasks. The table is “审计流程与模型”
+// — the switches of the stages that can be turned on (风险假设先行, 深度探索's full mode, 对抗复核) sit in their rows, and
+// settings › 任务创建默认值 shows it with the models read-only (they live in settings › 模型).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { AuditStrategy, ModelRef, ModelStageKey } from '@xiezhi/contracts';
-import { Icon, cx, ui } from '../../shared/ui';
+import { Link } from '@tanstack/react-router';
+import { Icon, InfoTip, cx, ui } from '../../shared/ui';
 import M from './stagemodels.module.css';
 
 type Thinking = NonNullable<ModelRef['thinking']>;
@@ -15,7 +18,7 @@ export type GuideStage = ModelStageKey | 'chat';
 type Scene = 'full' | 'incremental' | 'risk_hunt' | 'reverify';
 
 export const STAGE_LABEL: Record<ModelStageKey, string> = {
-  profile: '计划与画像', scope: '影响范围', triage: '初筛', hunt: '深入审计', logic: '风险假设', explore: '深度探索',
+  profile: '计划与画像', scope: '影响范围', triage: '初筛', hunt: '领域审计', logic: '风险假设', explore: '深度探索',
   challenge: '对抗复核', merge: '归并', verify: '复验与风险研判', report: '报告',
 };
 export const CHAT_LABEL = '对话';
@@ -25,17 +28,17 @@ export const STAGE_GUIDE: Record<GuideStage, { role: string; tasks: string[]; pi
   profile: { role: '审计开始时理解项目，决定审什么、怎么审。', tasks: ['生成审计计划（范围、重点、预算）', '仓库画像：技术栈、入口、信任边界与敏感数据'], pick: '读得多、推理中等，中等能力的模型即可。' },
   scope: { role: '增量审计专用：判断这次代码变更影响到哪里。', tasks: ['从变更文件出发追调用链，找出受影响的入口与危险点', '决定本次增量审计的候选范围'], pick: '需要理解调用关系，建议中等以上的模型。' },
   triage: { role: '在大量候选里排优先级，决定先审哪些。', tasks: ['给入口与危险点打风险分并排序', '超出候选上限的部分声明为覆盖缺口', '项目页的仓库角色识别（不使用模型时改用默认模型）'], pick: '调用次数多、单次简单，适合便宜快速的模型；选“不使用模型”时按规则打分，零成本。' },
-  hunt: { role: '主力阶段：自下而上追查漏洞，决定召回率与准确率。', tasks: ['分批阅读代码、追踪数据从入口到危险点的路径', '提交发现：攻击路径、影响、利用条件与代码证据', '对每个候选给出“发现 / 无问题 / 排除”的结论'], pick: '对质量影响最大，建议用最强的模型。' },
-  logic: { role: '先想清楚可能出什么事（风险假设），再逐条验证。', tasks: ['威胁建模：结合画像与入口列出风险假设（越权、业务逻辑等）', '自上而下逐条验证：已证实 / 已排除 / 无法判定，并给出排查理由'], pick: '需要业务理解与安全推理，建议强模型。需开启“风险假设先行”。' },
-  explore: { role: '汇总之后，只针对还不确定的地方再深挖。', tasks: ['每轮从无法判定的假设、模型间冲突、待确认发现中选一个方向', '派生一次专门调查，直到没有进展或达到轮数上限'], pick: '需要判断“下一步查什么”，建议强模型。需开启“深度探索”。' },
-  challenge: { role: '站在反方，专门找每个发现不成立的证据，压低误报。', tasks: ['对每个正式发现独立寻找反证（防护、不可达、前置条件不满足）', '给出维持 / 降低置信度 / 已驳倒，正反论据都保留'], pick: '与深入审计换一个同等能力的模型，更容易发现盲点。需开启“对抗复核”。' },
+  hunt: { role: '主力阶段：按风险领域派专家并行审计，决定召回率与准确率。', tasks: ['主控会话把系统按风险领域派发子任务读代码，每个领域最多 3 轮，追踪数据从入口到危险点的路径', '提交发现：攻击路径、影响、利用条件与代码证据', '给本领域的风险假设与候选下结论；未结论的必答项与缺口由补审兜底，补审、清单核对也用这个模型'], pick: '对质量影响最大，建议用最强的模型。' },
+  logic: { role: '先想清楚可能出什么事（风险假设），再逐条验证。', tasks: ['威胁建模：结合画像与入口列出风险假设（越权、业务逻辑等）', '自上而下逐条验证：已证实 / 已排除 / 无法判定，并给出排查理由'], pick: '需要业务理解与安全推理，建议强模型。不勾选时威胁建模也用它，但只划分风险领域、不列假设。' },
+  explore: { role: '汇总之后，只针对还不确定的地方再深挖。', tasks: ['每轮从无法判定的假设、模型间冲突、待确认发现中选一个方向', '派生一次专门调查，直到没有进展或达到轮数上限'], pick: '需要判断“下一步查什么”，建议强模型。不勾选时按需运行：只追查领域专家留下的方向。' },
+  challenge: { role: '站在反方，专门找每个发现不成立的证据，压低误报。', tasks: ['对每个正式发现独立寻找反证（防护、不可达、前置条件不满足）', '给出维持 / 降低置信度 / 已驳倒，正反论据都保留'], pick: '与领域审计换一个同等能力的模型，更容易发现盲点。不勾选时不复核正式发现，结论复查与外部结果分诊仍用这个模型。' },
   merge: { role: '把重复的发现合成一条，并与历史漏洞对上号。', tasks: ['按根因把描述同一问题的发现分组', '新发现与已跟踪漏洞的疑似匹配判断'], pick: '只看摘要、不读代码，便宜模型即可；选“不使用模型”时只按位置和危险点指纹合并。' },
   verify: { role: '复验与研判：确认问题是否还在。', tasks: ['漏洞复验：判断已报漏洞是否已修复、部分修复或仍存在', '风险排查：判断各仓库是否受某个风险影响'], pick: '需要读代码下结论，建议中等以上的模型。' },
   report: { role: '把审计结果写成报告。', tasks: ['导出时选“AI 生成”才使用：按报告模板写全文', '程序会校验编号、严重度与确认状态，不一致时让它修正'], pick: '写作与归纳能力好的模型即可；导出时还可以临时更换。' },
   chat: { role: '审计流程之外的 AI 助手。', tasks: ['AI 会话（追问、解释、发起操作）', '知识整理、规则包与架构导入的草稿', '推送到外部系统时填写参数'], pick: '交互为主，响应快、表达好的模型更合适。' },
 };
 
-/** The “?” next to a stage: opens its role, tasks and how to choose (in a portal, so tables neither clip nor cover it). */
+/** The ⓘ next to a stage: opens its role, tasks and how to choose (in a portal, so tables neither clip nor cover it). */
 export function StageHelp({ stage, label }: { stage: GuideStage; label: string }) {
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
@@ -75,7 +78,7 @@ export function StageHelp({ stage, label }: { stage: GuideStage; label: string }
   return (
     <span className={M.help}>
       <button ref={btn} type="button" className={M.helpBtn} aria-label={`${label}阶段说明`} aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Icon name="help" size={14} />
+        <Icon name="info" size={14} />
       </button>
       {open && pos && createPortal(
         <div ref={pop} role="dialog" aria-label={`${label}阶段说明`} className={M.helpPop} style={{ top: pos.top, left: pos.left, visibility: pos.ready ? 'visible' : 'hidden' }}>
@@ -91,10 +94,37 @@ export function StageHelp({ stage, label }: { stage: GuideStage; label: string }
 }
 
 const STAGE_HINT: Partial<Record<ModelStageKey, string>> = {
-  // explore: there is no switch on the new-audit form; the lead's directions left open are explored on demand.
-  scope: '增量审计的影响分析', logic: '需开启风险假设先行', explore: '追查遗留的方向时使用（按需）', challenge: '需开启对抗复核',
-  verify: '漏洞复验、风险排查的研判', report: 'AI 生成报告时使用，导出时可调整',
+  scope: '增量审计的影响分析', verify: '漏洞复验、风险排查的研判', report: 'AI 生成报告时使用，导出时可调整',
 };
+
+/**
+ * The switches in the table: `logic` = 风险假设先行 (`stages.threatHypotheses`), `challenge` = 对抗复核
+ * (`stages.adversarialReview`), `explore` = deep exploration's full mode (`stages.deepExplore`; off = on demand, the
+ * domain experts' open directions only).
+ */
+export interface StageSwitches { logic: boolean; explore: boolean; challenge: boolean }
+type SwitchStage = keyof StageSwitches;
+const SWITCH_LABEL: Record<SwitchStage, string> = { logic: '风险假设先行', explore: '深度探索完整模式', challenge: '对抗复核' };
+export interface StageSwitchesProps {
+  value: StageSwitches; onChange: (v: StageSwitches) => void;
+  /** At most this many hypotheses (`limits.maxCandidates`). */
+  maxCandidates: number;
+  /** `limits.maxRounds`: the full mode needs at least one round (incremental audits have none by default). */
+  rounds: number;
+  /** A lower layer turned the full mode on: unchecking writes `false`, which skips the on-demand runs too. */
+  exploreBaseOn?: boolean;
+}
+const isSwitch = (s: ModelStageKey): s is SwitchStage => s === 'logic' || s === 'explore' || s === 'challenge';
+
+/** What a switch row does in its current state. */
+export function switchHint(s: SwitchStage, sw: StageSwitchesProps): string {
+  const on = sw.value[s];
+  if (s === 'logic') return on ? `开启：列出风险假设（最多 ${sw.maxCandidates} 条）并逐条验证` : '关闭：威胁建模只划分风险领域';
+  if (s === 'challenge') return on ? '开启：对每个正式发现找反证' : '关闭：不复核正式发现';
+  if (on) return `完整：每轮选一个不确定的方向调查，最多 ${sw.rounds} 轮`;
+  if (sw.exploreBaseOn) return '本次不运行';
+  return `按需：追查领域专家留下的全部方向${sw.rounds < 1 ? '；本场景没有探索轮数，不能开启完整模式' : ''}`;
+}
 /** Stages each scene goes through (engine `stepStage`), in execution order (settings `SETTINGS_STAGES`). */
 const SCENE_STAGES: Record<Scene, ModelStageKey[]> = {
   full: ['profile', 'logic', 'triage', 'hunt', 'merge', 'explore', 'challenge', 'report'],
@@ -112,7 +142,7 @@ type CrossKey = 'threat' | 'hunt' | 'verify' | 'review';
 /** Stages that can run crossed, each its own switch; mirrors contracts `crossModels`. */
 const CROSS: { key: CrossKey; label: string; stage: ModelStageKey }[] = [
   { key: 'threat', label: '威胁建模：每个模型各列一份风险假设，合并去重', stage: 'logic' },
-  { key: 'hunt', label: '自下而上追查（深入审计）：发现按“几个模型认同”调整置信度', stage: 'hunt' },
+  { key: 'hunt', label: '自下而上追查（领域审计）：发现按“几个模型认同”调整置信度', stage: 'hunt' },
   { key: 'verify', label: '自上而下验证：每条风险假设由每个模型各验证一次，保留各模型结论', stage: 'logic' },
   { key: 'review', label: '对抗复核：每个正式发现由每个模型各复核一次，正反论据都保留', stage: 'challenge' },
 ];
@@ -138,16 +168,18 @@ export function effectiveStageModel(v: Pick<AuditStrategy, 'models'>, s: ModelSt
 
 export function scenesStages(scene: Scene): ModelStageKey[] { return SCENE_STAGES[scene]; }
 
-export function StageModelsEditor({ scene, value, onChange, models, globalFallback, enabled }: {
-  scene: Scene; value: StageModelsValue; onChange: (v: StageModelsValue) => void; models: string[];
+export function StageModelsEditor({ scene, value, onChange, models, globalFallback, switches, readOnly }: {
+  scene: Scene; value: StageModelsValue; onChange?: (v: StageModelsValue) => void; models: string[];
   /** Settings → 模型 → 备用模型 (the only fallback). */
   globalFallback: ModelRef | null;
-  /** The form's switches: a stage whose switch is on drops its “需开启…” hint. */
-  enabled?: Partial<Record<'logic' | 'challenge', boolean>>;
+  /** The stage switches, in their rows. */
+  switches?: StageSwitchesProps;
+  /** Settings › 任务创建默认值 — the models are shown, edited in settings › 模型; no cross editor. */
+  readOnly?: boolean;
 }) {
   const known = (m: ModelRef | null | undefined) => !m || models.includes(key(m));
   const options = (cur: ModelRef | null | undefined) => [...(known(cur) ? [] : [key(cur)]), ...models].map((m) => <option key={m} value={m}>{m}{known(parse(m)) ? '' : '（未配置）'}</option>);
-  const setModel = (s: ModelStageKey, m: ModelRef | null) => onChange({ ...value, models: { ...value.models, [slot(s)]: m } as AuditStrategy['models'] });
+  const setModel = (s: ModelStageKey, m: ModelRef | null) => onChange?.({ ...value, models: { ...value.models, [slot(s)]: m } as AuditStrategy['models'] });
   const crossable = scene === 'full' || scene === 'incremental';
 
   const row = (s: ModelStageKey) => {
@@ -157,9 +189,22 @@ export function StageModelsEditor({ scene, value, onChange, models, globalFallba
     return (
       <tr key={s}>
         <th scope="row" className={M.stage}>
-          <span className={M.stageName}>{STAGE_LABEL[s]}<StageHelp stage={s} label={STAGE_LABEL[s]} /></span>
-          {STAGE_HINT[s] && !(s === 'logic' || s === 'challenge' ? enabled?.[s] : false) && <div className={M.hint}>{STAGE_HINT[s]}</div>}
+          <span className={M.stageName}>
+            {switches && isSwitch(s) && (
+              <input type="checkbox" aria-label={SWITCH_LABEL[s]} title={SWITCH_LABEL[s]} checked={switches.value[s]}
+                disabled={s === 'explore' && switches.rounds < 1 && !switches.value.explore}
+                onChange={(e) => switches.onChange({ ...switches.value, [s]: e.target.checked })} />
+            )}
+            {STAGE_LABEL[s]}<StageHelp stage={s} label={STAGE_LABEL[s]} />
+          </span>
+          {switches && isSwitch(s) ? <div className={M.hint}>{switchHint(s, switches)}</div> : STAGE_HINT[s] && <div className={M.hint}>{STAGE_HINT[s]}</div>}
         </th>
+        {readOnly ? (
+          <>
+            <td className={ui.mono} style={{ fontSize: 12 }}>{eff ? key(eff) : '不使用模型（确定性处理）'}{byCross && <div className={M.hint}>由多模型交叉的模型各做一遍</div>}</td>
+            <td style={{ fontSize: 12 }}>{eff ? THINKING.find(([k]) => k === (eff.thinking ?? ''))?.[1] : '—'}</td>
+          </>
+        ) : (<>
         <td>
           <select aria-label={`${STAGE_LABEL[s]}模型`} className={cx(ui.select, M.sel)} value={key(eff)} onChange={(e) => {
             const m = parse(e.target.value);
@@ -177,6 +222,7 @@ export function StageModelsEditor({ scene, value, onChange, models, globalFallba
             {THINKING.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </td>
+        </>)}
       </tr>
     );
   };
@@ -190,11 +236,19 @@ export function StageModelsEditor({ scene, value, onChange, models, globalFallba
           <tbody>{SCENE_STAGES[scene].map(row)}</tbody>
         </table>
       </div>
-      <p className={M.hint}>默认取自 设置 › 模型。{globalFallback ? `模型不可用时切换到备用模型 ${key(globalFallback)}。` : '未设置备用模型（设置 › 模型），模型不可用时不切换。'}</p>
-      {crossable && <CrossModelsEditor value={value.multiModel} onChange={(multiModel) => onChange({ ...value, multiModel })} models={models} hunt={value.models.audit} />}
+      {readOnly
+        ? <p className={M.hint}>模型与思考强度在 <Link to="/settings/$section" params={{ section: 'models' }}>设置 › 模型</Link> 中修改，所有场景共用；这里设置的是各场景默认运行哪些可选阶段。</p>
+        : <p className={M.hint}>默认取自 设置 › 模型。{globalFallback ? `模型不可用时切换到备用模型 ${key(globalFallback)}。` : '未设置备用模型（设置 › 模型），模型不可用时不切换。'}</p>}
+      {crossable && !readOnly && onChange && <CrossModelsEditor value={value.multiModel} onChange={(multiModel) => onChange({ ...value, multiModel })} models={models} hunt={value.models.audit} />}
     </div>
   );
 }
+
+/** What a crossed task does when a content filter refused one of its models (absent = continue). */
+const ON_FILTERED: ['continue' | 'pause', string, string][] = [
+  ['continue', '继续运行（默认）', '其他模型继续完成这项任务，被拦截的一方自动退化为单模型结果；被拦截的步骤在审计结束时记为跳过，报告中注明。同一任务的模型都被拦截时才暂停。'],
+  ['pause', '暂停运行', '审计暂停，由你人工介入：切换模型重试、从头开始这些步骤，或原样重试。'],
+];
 
 /** Multi-model cross-checking: a group of 2–4 models and the stages they each run. */
 export function CrossModelsEditor({ value: cross, onChange, models, hunt }: {
@@ -216,7 +270,7 @@ export function CrossModelsEditor({ value: cross, onChange, models, hunt }: {
   return (
     <div className={M.cross}>
       <label className={ui.checkbox}>
-        <input type="checkbox" checked={cross.enabled} onChange={(e) => onChange({ enabled: e.target.checked, models: e.target.checked && !cross.models.length ? [{ ...hunt }] : cross.models, stages: e.target.checked && !cross.stages ? {} : crossStagesOf(cross) })} />
+        <input type="checkbox" checked={cross.enabled} onChange={(e) => onChange({ ...cross, enabled: e.target.checked, models: e.target.checked && !cross.models.length ? [{ ...hunt }] : cross.models, stages: e.target.checked && !cross.stages ? {} : crossStagesOf(cross) })} />
         多模型交叉：选一组 2–4 个模型，下面勾选的环节由每个模型各做一遍（每个环节单独选择，缺省都不交叉）
       </label>
       {cross.enabled && (
@@ -251,6 +305,19 @@ export function CrossModelsEditor({ value: cross, onChange, models, hunt }: {
                 </label>
               );
             })}
+          </div>
+          <div className={ui.stack} style={{ gap: 4 }} role="radiogroup" aria-label="交叉审查中一个模型被拦截">
+            <span className={ui.faint}>交叉审查中一个模型被内容过滤拦截、其他模型还能运行时</span>
+            {ON_FILTERED.map(([k, label, help]) => (
+              <span key={k} className={ui.row} style={{ gap: 4 }}>
+                <label className={ui.checkbox}>
+                  <input type="radio" name="cross-on-filtered" checked={(cross.onFiltered ?? 'continue') === k}
+                    onChange={() => { const { onFiltered: _, ...rest } = cross; onChange(k === 'continue' ? rest : { ...rest, onFiltered: k }); }} />
+                  {label}
+                </label>
+                <InfoTip label={`${label}的含义`}>{help}</InfoTip>
+              </span>
+            ))}
           </div>
           <p className={cross.models.length < 2 || !CROSS.some((c) => crossStagesOf(cross)[c.key]) ? M.warn : M.hint}>
             {cross.models.length < 2 ? '至少选 2 个模型（最多 4 个）'
@@ -291,7 +358,7 @@ export function StageModelsSummary({ s, scene: sc, globalFallback }: { s: AuditS
           <li key={st}>
             <span className={ui.faint}>{STAGE_LABEL[st]}</span>
             <b className={ui.mono}>{multi ? s.multiModel.models.map(key).join(' + ') : m ? key(m) : '不使用'}{!multi && m?.thinking && m.thinking !== 'off' ? ` · 思考${THINKING.find(([k]) => k === m.thinking)![1]}` : ''}</b>
-            {multi && <span className={ui.faint}>交叉审查 ×{s.multiModel.models.length}</span>}
+            {multi && <span className={ui.faint}>交叉审查 ×{s.multiModel.models.length}{s.multiModel.onFiltered === 'pause' ? '，一个模型被拦截即暂停' : ''}</span>}
             {multi && fb && <span className={ui.faint}>备用 {key(fb)}{s.multiModel.models.some((x) => sameModel({ provider: x.provider, model: x.model }, { provider: fb.provider, model: fb.model })) ? '（已在交叉组内，出错时不替换，记为降级）' : ''}</span>}
             {!multi && m && fb && !sameModel(fb, m) && <span className={ui.faint}>备用 {key(fb)}</span>}
           </li>

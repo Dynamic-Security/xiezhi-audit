@@ -12,7 +12,7 @@ import {
 import { EVENT_TYPES, type EventType } from './events.js';
 import { AuditStrategy, BUDGET_STAGES, ModelRef } from './strategy.js';
 import { RepoSignals } from './context.js';
-import { StageModelsConfig } from './config.js';
+import { StageModelsConfig, ToolsConfig } from './config.js';
 import { PendingCondition } from './submit.js';
 import { HuntBasis } from './hunt.js';
 import { VULN_CATEGORIES } from './categories.js';
@@ -36,6 +36,7 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   KNOWLEDGE_INVALID: 422, KNOWLEDGE_EXISTS: 409, KNOWLEDGE_PATH_INVALID: 400,
   CONVERSATION_NOT_FOUND: 404, MESSAGE_NOT_FOUND: 404, MESSAGE_BUSY: 409, CARD_NOT_FOUND: 404, CARD_NOT_PENDING: 409, HYPOTHESIS_NOT_FOUND: 404, HYPOTHESIS_DECIDED: 409,
   THREAT_MODEL_NOT_FOUND: 404, THREAT_MODEL_BUSY: 409, THREAT_SOURCE_NOT_FOUND: 404, THREAT_RISK_NOT_FOUND: 404, THREAT_REASON_REQUIRED: 422,
+  PROVIDER_IN_USE: 409,
 };
 
 const O = <P extends Record<string, TSchema>>(props: P) => Type.Object(props, { additionalProperties: false });
@@ -113,7 +114,7 @@ export type DirectoryPickDto = Static<typeof DirectoryPickDto>;
 export const RepoProbeDto = O({
   sourceKind: closedSet(['local', 'git', 'archive'] as const), ok: Bool,
   path: Str, exists: Bool, isDirectory: Bool, hasGit: Bool, currentBranch: NStr, headCommit: NStr, dirty: Nullable(Bool),
-  languages: NumRecord, auditable: Bool, suggestedName: Str, problems: Type.Array(Str),
+  languages: NumRecord, auditable: Bool, suggestedName: Str, problems: Type.Array(Str), refs: Type.Array(RefDto),
   remote: Nullable(O({ url: Str, defaultBranch: NStr, refs: Type.Array(RefDto), errorCode: NStr, suggestions: Type.Array(Str) })),
   archive: Nullable(O({ uploadId: Str, fileName: Str, format: Str, fileCount: Int, totalBytes: Int })),
 });
@@ -190,6 +191,14 @@ export const StepDto = O({
   tokensIn: Int, tokensOut: Int, costMicros: Nullable(Int), errorClass: NStr, errorSummary: NStr, startedAt: NIso, endedAt: NIso,
 });
 export type StepDto = Static<typeof StepDto>;
+/** What a content filter refused — the step's model, the provider's reply and the last messages sent before it. */
+export const FilteredStepDto = O({
+  stepId: Str, lineage: NStr, model: NStr, attempt: Int, error: NStr,
+  reply: Nullable(O({ text: Str, model: NStr, stopReason: NStr, errorMessage: NStr })),
+  /** Oldest first; `text` is cut, `chars` is the full length. */
+  request: Type.Array(O({ role: Str, text: Str, chars: Int })),
+});
+export type FilteredStepDto = Static<typeof FilteredStepDto>;
 // ---- execution overview ----
 /** Phases of the overview, in display order. */
 export const EXECUTION_PHASES = ['prepare', 'triage', 'hunt', 'explore', 'challenge', 'verify', 'risk', 'finalize'] as const;
@@ -219,8 +228,11 @@ export const ExecStepDto = O({
   segment: closedSet(EXECUTION_SEGMENTS),
   /** The model the step runs with (`provider/model`, after a fallback switch) and the switch, if any. */
   model: NStr,
-  /** `manual`: the user chose the model (“切换模型重试”) rather than the configured fallback. */
-  fallback: Nullable(O({ from: Str, reason: Str, degraded: Bool, manual: Bool })),
+  /**
+   * `manual`: the user chose the model (“切换模型重试”) rather than the configured fallback; `later`: the
+   * step was not refused itself — it would have run on a refused model and the user chose another for every later step.
+   */
+  fallback: Nullable(O({ from: Str, reason: Str, degraded: Bool, manual: Bool, later: Bool })),
   candidates: Type.Array(ExecCandidateDto), agents: Type.Array(ExecAgentDto),
 });
 export type ExecStepDto = Static<typeof ExecStepDto>;
@@ -261,16 +273,29 @@ export const AuditDetailDto = O({
   /** Reverification audits: targets and verdicts; null for other scenes. */
   reverify: Nullable(Type.Array(ReverifyItemDto)),
   exports: O({ md: Bool, json: Bool, sarif: Bool }),
+  /** Every model (`provider/model`) a content filter refused in this audit, a refused fallback model included. */
+  filteredModels: Type.Array(Str),
+  /** “切换模型重试 · 之后所有步骤” — later steps that would run on `from` run on `to`. */
+  modelSwitches: Type.Array(O({ from: Str, to: ModelRef })),
 });
 export type AuditDetailDto = Static<typeof AuditDetailDto>;
 const Range2 = O({ p50: Num, p90: Num });
 /** Incremental audits: baseline and change summary shown with the plan. */
-export const IncrementalSummaryDto = O({
-  base: O({ auditId: NStr, ref: NStr, commit: NStr, rootHash: Str, worktree: Bool }),
+const IncrementalBase = O({ auditId: NStr, ref: NStr, commit: NStr, rootHash: Str, worktree: Bool });
+const incrementalChange = {
   mode: closedSet(['precise', 'heuristic', 'full_scan'] as const),
   fallbackReasons: Type.Array(Str),
   changedFiles: O({ added: Int, modified: Int, deleted: Int, renamed: Int }),
   changedSymbols: Int, affectedEntrypoints: Int, affectedSinks: Int,
+};
+/**
+ * Multi-repository incremental audits: the top level sums the targets (mode = the least precise, base = the
+ * first target with a baseline) and `repos` has each target; `base` is null for a target audited in full without one.
+ */
+export const IncrementalSummaryDto = O({
+  base: IncrementalBase,
+  ...incrementalChange,
+  repos: Type.Optional(Type.Array(O({ repo: Str, base: Nullable(IncrementalBase), ...incrementalChange }))),
 });
 export type IncrementalSummaryDto = Static<typeof IncrementalSummaryDto>;
 export const PlanDto = O({
@@ -300,6 +325,8 @@ export const QuestionDto = O({
   saveAsSkill: closedSet(['none', 'offered', 'saved', 'declined'] as const),
   /** a plan-context question — its answer becomes an enterprise fact of the project. */
   asFact: Bool,
+  /** Suggested answers the agent offered with the question (empty for none and for older questions). */
+  options: Type.Array(Str),
   createdAt: Iso, answeredAt: NIso,
 });
 export type QuestionDto = Static<typeof QuestionDto>;
@@ -317,7 +344,8 @@ export const EventDtoSchema = O({ seq: Int, type: closedSet(EVENT_TYPES), stepId
 export type EventDto = { seq: number; type: EventType; stepId: string | null; ts: string; payload: Record<string, unknown> };
 export const TrajectoryPage = O({ items: Type.Array(EventDtoSchema), nextAfter: Int, hasMore: Bool });
 export const EventPoll = O({ resync: Bool, events: Type.Array(EventDtoSchema), lastSeq: Int, status: closedSet(AUDIT_STATUSES) });
-export const UsageRow = O({ key: Str, tokensIn: Int, tokensOut: Int, costMicros: Nullable(Int), unknownCostCalls: Int, calls: Int });
+/** `tokensCached`: input read from the prompt cache, not in `tokensIn`; the three add up to what the budget counts. */
+export const UsageRow = O({ key: Str, tokensIn: Int, tokensOut: Int, tokensCached: Int, costMicros: Nullable(Int), unknownCostCalls: Int, calls: Int });
 export type UsageRow = Static<typeof UsageRow>;
 
 // ---- findings / vulnerabilities ----------------------------------------------------------------------------------
@@ -538,12 +566,18 @@ export type ExportPreviewDto = Static<typeof ExportPreviewDto>;
 export type ExportDto = Static<typeof ExportDto>;
 
 // ---- settings / diagnostics / home --------------------------------------------------------------------------
-const ModelEntry = O({ id: Str, name: Type.Optional(Str), contextWindow: Type.Optional(Int), maxTokens: Type.Optional(Int), reasoning: Type.Optional(Bool) });
+/** `confidential`: listed in `confidentialModels` (may receive facts marked confidential). */
+const ModelEntry = O({ id: Str, name: Type.Optional(Str), contextWindow: Type.Optional(Int), maxTokens: Type.Optional(Int), reasoning: Type.Optional(Bool), confidential: Type.Optional(Bool), images: Type.Optional(Bool) });
 export const ProviderDto = O({
   id: Str, api: Str, baseUrl: Str, apiKey: O({ configured: Bool, hint: Type.Optional(Str) }), models: Type.Array(ModelEntry),
   lastTest: Nullable(O({ ok: Bool, at: Iso, detail: Str })),
+  /** The model settings that name this provider; deleting it clears them only when asked to. */
+  references: Type.Array(O({ setting: Str, label: Str, model: Str })),
 });
 export type ProviderDto = Static<typeof ProviderDto>;
+/** DELETE of a provider: the settings that pointed at it and were cleared with it. */
+export const ProviderDeleted = O({ cleared: Type.Array(O({ setting: Str, label: Str, model: Str })) });
+export type ProviderDeleted = Static<typeof ProviderDeleted>;
 export const ProviderPatched = O({ ...ProviderDto.properties, keyCleared: Bool });
 export const ProviderTestResult = O({ ok: Bool, at: Iso, detail: Str, models: Type.Array(Str) });
 /** Model list of an unsaved provider form; `limits`: the models whose listing entry reported a context window or output cap. */
@@ -570,7 +604,9 @@ const PricingDto = O({ currency: Str, input: Num, output: Num, cacheRead: Type.O
 export const GeneralSettingsDto = O({
   concurrency: O({ audits: Int, modelRequests: Int }), engine: O({ pauseGraceSec: Int, budgetTolerance: Num }),
   export: O({ snippets: Bool, localRoots: Bool, reportSkill: Type.Optional(Str) }), log: O({ level: Str, retentionDays: Int }),
-  pricing: Type.Record(Type.String(), PricingDto), revision: Str,
+  pricing: Type.Record(Type.String(), PricingDto),
+  /** External tool paths as configured (unset keys absent; the service looks those up on PATH). */
+  tools: ToolsConfig, revision: Str,
 });
 export type GeneralSettingsDto = Static<typeof GeneralSettingsDto>;
 export const DoctorCheckDto = O({ name: Str, level: closedSet(['ok', 'fatal', 'block', 'warn', 'info'] as const), detail: Str, impact: Type.Optional(Str), fix: Type.Optional(Str) });

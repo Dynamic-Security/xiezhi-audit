@@ -1,6 +1,6 @@
 export {
   scanLayer, effectiveSkills, prefilter, installBuiltinSkills, syncBuiltinSkills, skillEntryHash, BUILTIN_RECORD, BUILTIN_HISTORY, builtinSkillsDir, estimateTokens, validateSkillText, splitFrontmatter, parseChecklist, PHASES, PUSH_TARGETS, NAME_RE,
-  type BuiltinSync, type Skill, type InvalidSkill, type LayerScan, type LayerSettings, type SkillMeta, type PushSpec, type PushTarget, type TaskFacts, type Phase, type Selected, type AppliesTo, type ChecklistItem,
+  type BuiltinSync, type Skill, type InvalidSkill, type LayerScan, type LayerSettings, type SkillMeta, type PushSpec, type PushTarget, type TaskFacts, type Phase, type Selected, type AppliesTo, type ChecklistItem, type ChecklistLocate,
 } from './skills.js';
 export {
   freezeSkills, sessionKnowledge, loadFrozenSkill, INDEX_MAX_ITEMS, BODY_BUDGET_TOKENS,

@@ -1,7 +1,9 @@
 // Add repositories: local directory, remote Git (https / ssh) or an uploaded archive.
 // Each source is probed first (reachability, Git info, languages, auditable) before it can be added.
-// RefPicker lists branches, tags and (local only) recent commits with keyword/hash search.
-import { useEffect, useRef, useState } from 'react';
+// RefPicker lists branches, tags and (local only) recent commits with keyword/hash search; RefCombobox offers the
+// probed ones as a dropdown while adding, and still takes any typed ref.
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import type { DirectoryPickDto, RefDto, RepoDto, RepoProbeDto, UploadDto } from '@xiezhi/contracts';
 import { api, ApiError, uploadFile } from '../../shared/api/client';
@@ -105,7 +107,7 @@ export function AddRepoDialog({ pid, open, onClose }: { pid: string; open: boole
     }
   };
   const langs = probe ? Object.entries(probe.languages).sort((a, b) => b[1] - a[1]).slice(0, 6) : [];
-  const refOptions = probe?.remote?.refs ?? [];
+  const refOptions = (kind === 'git' ? probe?.remote?.refs : probe?.refs) ?? [];
   const refHint = kind === 'git'
     ? `留空 = 远程默认分支${probe?.remote?.defaultBranch ? `（${probe.remote.defaultBranch}）` : ''}；可填分支、标签或完整 commit hash`
     : probe?.hasGit ? '留空 = 当前工作区（含未提交改动）；可填分支、标签或 commit' : '无 Git 信息，审计当前目录内容';
@@ -169,15 +171,124 @@ export function AddRepoDialog({ pid, open, onClose }: { pid: string; open: boole
           </Field>
           {kind !== 'archive' && (
             <Field label="默认审计版本（可选）" hint={refHint}>
-              <input className={cx(ui.input, ui.mono)} value={ref} list={kind === 'git' ? 'remote-refs' : undefined} disabled={kind === 'local' && !probe.hasGit}
-                placeholder={kind === 'git' ? (probe.remote?.defaultBranch ?? 'main') : probe.hasGit ? '例如 main' : '—'} onChange={(e) => setRef(e.target.value)} />
-              {kind === 'git' && <datalist id="remote-refs">{refOptions.slice(0, 200).map((r) => <option key={`${r.kind}:${r.name}`} value={r.name}>{r.kind === 'tag' ? '标签' : '分支'} · {r.commit.slice(0, 7)}</option>)}</datalist>}
+              {refOptions.length > 0
+                ? <RefCombobox value={ref} onChange={setRef} options={refOptions} current={kind === 'local' ? probe.currentBranch : null}
+                  placeholder={kind === 'git' ? (probe.remote?.defaultBranch ?? 'main') : '选择或输入分支、标签、commit'} emptyLabel={kind === 'git' ? '远程默认分支' : '当前工作区'} />
+                : <input aria-label="默认审计版本" className={cx(ui.input, ui.mono)} value={ref} disabled={kind === 'local' && !probe.hasGit}
+                  placeholder={kind === 'git' ? (probe.remote?.defaultBranch ?? 'main') : probe.hasGit ? '例如 main' : '—'} onChange={(e) => setRef(e.target.value)} />}
             </Field>
           )}
         </div>
       )}
       {err && <div className={ui.error}>{err}</div>}
     </Dialog>
+  );
+}
+
+const REF_GROUPS: { kind: RefDto['kind']; label: string }[] = [{ kind: 'branch', label: '分支' }, { kind: 'tag', label: '标签' }, { kind: 'commit', label: '最近提交' }];
+const refValue = (r: RefDto) => (r.kind === 'commit' ? r.commit : r.name);
+
+/**
+ * Free-text ref field with the probed branches / tags / recent commits as a filterable dropdown (in a portal, so the
+ * dialog's scroll area neither clips it nor grows). The first entry clears the field (= `emptyLabel`).
+ */
+function RefCombobox({ value, onChange, options, current, placeholder, emptyLabel }: {
+  value: string; onChange: (v: string) => void; options: RefDto[]; current: string | null; placeholder: string; emptyLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [active, setActive] = useState(0);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const needle = filter.trim().toLowerCase();
+  // Name / hash matches first, then refs whose commit subject matches.
+  const rank = (r: RefDto) => (!needle ? 0 : r.name.toLowerCase() === needle ? 0 : r.name.toLowerCase().includes(needle) || r.commit.startsWith(needle) ? 1 : r.subject.toLowerCase().includes(needle) ? 2 : -1);
+  const shown = REF_GROUPS.map((g) => ({
+    ...g,
+    items: options.filter((r) => r.kind === g.kind && rank(r) >= 0).sort((a, b) => rank(a) - rank(b)).slice(0, 100),
+  })).filter((g) => g.items.length > 0);
+  // Row 0 = "leave empty"; then the shown refs in group order.
+  const flat: (RefDto | null)[] = [null, ...shown.flatMap((g) => g.items)];
+  const pick = (r: RefDto | null) => { onChange(r ? refValue(r) : ''); setFilter(''); setOpen(false); };
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => { const t = e.target as Node; if (!box.current?.contains(t) && !pop.current?.contains(t)) setOpen(false); };
+    const relayout = () => setPos(null);
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', relayout, true);
+    window.addEventListener('resize', relayout);
+    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('scroll', relayout, true); window.removeEventListener('resize', relayout); };
+  }, [open]);
+  // Below the field, or above it when there is more room there.
+  useLayoutEffect(() => {
+    if (!open || pos || !box.current) return;
+    const r = box.current.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom - 12;
+    const above = r.top - 12;
+    const maxHeight = Math.min(320, Math.max(below, above));
+    setPos({ top: below >= Math.min(320, above) ? r.bottom + 4 : r.top - 4 - maxHeight, left: r.left, width: r.width, maxHeight });
+  }, [open, pos]);
+  // While typing, the first match is highlighted so Enter takes it.
+  useEffect(() => { setActive(needle && flat.length > 1 ? 1 : 0); }, [filter, open]);
+  useEffect(() => { pop.current?.querySelector<HTMLElement>(`[data-row="${active}"]`)?.scrollIntoView({ block: 'nearest' }); }, [active]);
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!open) { setOpen(true); return; }
+      setActive((a) => (a + (e.key === 'ArrowDown' ? 1 : flat.length - 1)) % flat.length);
+    } else if (e.key === 'Enter' && open) {
+      e.preventDefault();
+      // No match: keep the typed ref as it is.
+      if (needle && flat.length === 1) setOpen(false); else pick(flat[active] ?? null);
+    }
+  };
+  let row = 0;
+  return (
+    <div ref={box} style={{ position: 'relative' }}>
+      <input aria-label="默认审计版本" role="combobox" aria-expanded={open} aria-autocomplete="list" className={cx(ui.input, ui.mono)} style={{ paddingRight: 34 }}
+        value={value} placeholder={placeholder} onFocus={() => setOpen(true)} onClick={() => setOpen(true)} onKeyDown={onKey}
+        onChange={(e) => { onChange(e.target.value); setFilter(e.target.value); setOpen(true); }} />
+      <button type="button" tabIndex={-1} aria-label="展开版本列表" onMouseDown={(e) => e.preventDefault()}
+        onClick={() => { setFilter(''); setOpen(!open); box.current?.querySelector('input')?.focus(); }}
+        style={{ position: 'absolute', right: 4, top: 4, height: 28, width: 28, display: 'grid', placeItems: 'center', border: 'none', background: 'none', color: 'var(--text-3)', cursor: 'pointer' }}>
+        <Icon name="chevronDown" size={14} />
+      </button>
+      {open && pos && createPortal(
+        <div ref={pop} role="listbox" aria-label="可选版本" className={ui.menu}
+          style={{ position: 'fixed', zIndex: 120, top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxHeight, overflowY: 'auto' }}>
+          <button type="button" role="option" aria-selected={value === ''} data-row={row++} className={ui.menuItem}
+            style={{ background: active === 0 ? 'var(--bg-hover)' : undefined }} onMouseEnter={() => setActive(0)} onClick={() => pick(null)}>
+            <span className={ui.muted}>留空 · {emptyLabel}</span>
+          </button>
+          {shown.map((g) => (
+            <div key={g.kind}>
+              <div className={ui.faint} style={{ fontSize: 11, padding: '6px 10px 2px' }}>{g.label}</div>
+              {g.items.map((r) => {
+                const i = row++;
+                const v = refValue(r);
+                return (
+                  <button key={`${r.kind}:${r.name}:${r.commit}`} type="button" role="option" aria-selected={value === v} data-row={i} className={ui.menuItem}
+                    style={{ background: active === i ? 'var(--bg-hover)' : value === v ? 'var(--bg-active)' : undefined }} onMouseEnter={() => setActive(i)} onClick={() => pick(r)}>
+                    <Icon name={r.kind === 'commit' ? 'git' : r.kind === 'tag' ? 'target' : 'layers'} size={14} />
+                    <div className={ui.grow} style={{ minWidth: 0 }}>
+                      <div className={ui.ellipsis}>
+                        <span className={ui.mono}>{r.kind === 'commit' ? r.commit.slice(0, 7) : r.name}</span>
+                        {r.kind === 'branch' && r.name === current && <> <Badge tone="info">当前</Badge></>}
+                        {r.subject && <span className={ui.muted}> {r.subject}</span>}
+                      </div>
+                      <div className={ui.faint} style={{ fontSize: 11 }}><span className={ui.mono}>{r.commit.slice(0, 7)}</span>{r.author && ` · ${r.author}`}{r.date && ` · ${fmt.date(r.date)}`}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          {shown.length === 0 && <div className={ui.faint} style={{ fontSize: 12, padding: '6px 10px' }}>没有匹配项，将按输入值使用</div>}
+        </div>,
+        document.body,
+      )}
+    </div>
   );
 }
 

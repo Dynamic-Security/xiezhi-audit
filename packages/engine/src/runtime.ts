@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, rmdirSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
-  crossModels, isAuditLanguage, newId, stageFallback, stageModel, upgradeStrategy, type AuditLanguage, type BudgetStage, type Connection, type AuditStrategy, type EventType, type ImpactSet, type ModelRef, type SnapshotManifest, type StepKind, type StructIndex,
+  answerOptions, crossModels, isAuditLanguage, newId, stageFallback, stageModel, upgradeStrategy, type AuditLanguage, type BudgetStage, type Connection, type AuditStrategy, type EventType, type ImpactSet, type ModelRef, type SnapshotManifest, type StepKind, type StructIndex,
 } from '@xiezhi/contracts';
 import {
   computeRepoSignals, CONNECT_VERSION, extractConnections, type ConnectLimit, gitLog, parseGitUrl, remoteCacheDir, toolSymbolLookup, matchConnections, mergeRanges, SnapshotView, type CrossRepoData, type Executor, type IndexMap, type Range, type RuleSet,
@@ -29,7 +29,7 @@ import { indexLanguagesFor } from './auditable.js';
 import { languageOf, type LspPool } from './lsp.js';
 import { buildConnectorAccess, connectorPrompt, type ConnectorRef } from './connector-access.js';
 import { costMicros } from './estimates.js';
-import { getAudit, sessionLimit, type AuditRow, type StepRow } from './state.js';
+import { getAudit, isCrossLane, sessionLimit, type AuditRow, type StepRow } from './state.js';
 import { budgetStage, stepStage } from './stages.js';
 import { resumableTranscript, transcriptDir, TRANSIENT_SESSION_ERRORS } from './resume.js';
 import { isSystemModel, renderSystemModel, renderThreatModel, type ProfileOutput, type SystemModelOutput } from './steps/profile.js';
@@ -177,6 +177,16 @@ export class AuditRuntime {
    * session of the step (sub-agents included). Restored from `model.fallback` events when a run resumes.
    */
   readonly fallbacks = new Map<string, ModelRef>();
+  /**
+   * “切换模型重试 · 之后所有步骤”: a model a content filter refused (`provider/model`) → the model the user chose
+   * for every later step that would run on it. Kept on the audit row (`model_switches`).
+   */
+  readonly modelSwitches = new Map<string, ModelRef>();
+  /**
+   * Cross lanes a content filter refused while another lane of the task goes on: they wait for a person for
+   * the rest of this run and are skipped when it finishes. Not restored: a resumed run tries them again.
+   */
+  readonly filteredLanes = new Set<string>();
   /** Steer handles of sessions currently running for this audit (answers, interventions, pause). */
   steers: Set<(text: string) => Promise<void>> = new Set();
 
@@ -190,10 +200,18 @@ export class AuditRuntime {
   load(): void {
     const a = this.audit;
     const strategy = upgradeStrategy(JSON.parse(a.strategy_frozen ?? a.strategy_draft));
+    // The switched model is read from the step row, which the switch updated: the event is redacted, and a provider id
+    // equal to a configured secret came back as `[REDACTED]` and failed the step as “not configured”.
     this.fallbacks.clear();
+    const stepRows = new Map(this.store.all<{ id: string; provider: string | null; model: string | null }>('SELECT id, provider, model FROM step WHERE audit_id = ?', this.auditId).map((r) => [r.id, r]));
     for (const e of this.store.listEvents(this.auditId, 0, ['model.fallback'])) {
-      if (e.stepId && !e.payload.degraded && e.payload.to) this.fallbacks.set(e.stepId, e.payload.to as ModelRef);
+      const row = e.stepId ? stepRows.get(e.stepId) : undefined;
+      if (!row?.provider || !row.model || e.payload.degraded || !e.payload.to) continue;
+      const thinking = (e.payload.to as ModelRef).thinking;
+      this.fallbacks.set(row.id, { provider: row.provider, model: row.model, ...(thinking ? { thinking } : {}) });
     }
+    this.modelSwitches.clear();
+    for (const [from, to] of Object.entries(JSON.parse(a.model_switches || '{}') as Record<string, ModelRef>)) this.modelSwitches.set(from, to);
     // A limit changed while the audit ran is kept in the trajectory; a resumed run picks it up again.
     this.strategy = { ...strategy, concurrency: { ...strategy.concurrency, sessions: sessionLimit(this.store, this.auditId, strategy.concurrency.sessions) } };
     if (a.knowledge_ref) this.knowledge = this.store.artifacts.getJson<FrozenKnowledge>(a.knowledge_ref);
@@ -236,15 +254,26 @@ export class AuditRuntime {
     return this.indexes.get(repoName) ?? this.identityIndexes.get(repoName);
   }
 
-  /** Baseline snapshot of the target repository (incremental audits). */
-  baseRepo(): RepoInfo | undefined {
-    return this.baseRepos.find((r) => r.id === this.targetRepo.id);
+  /** Baseline snapshot of a target repository (incremental audits; default the first target). */
+  baseRepo(repoId = this.targetRepo.id): RepoInfo | undefined {
+    return this.baseRepos.find((r) => r.id === repoId);
   }
 
-  /** Impact set computed by this audit's scope step (incremental audits), or null. */
-  impact(): ImpactSet | null {
-    const row = this.store.get<{ output_ref: string }>(`SELECT output_ref FROM step WHERE audit_id = ? AND kind = 'scope' AND status = 'succeeded' ORDER BY seq DESC LIMIT 1`, this.auditId);
-    return row ? this.store.artifacts.getJson<ImpactSet>(row.output_ref) : null;
+  /**
+   * Impact sets computed by this audit's scope steps (incremental audits), by target repository name: one per target.
+   * A scope step without `input.repo` (older audits) is the first target's.
+   */
+  impacts(): Map<string, ImpactSet> {
+    const out = new Map<string, ImpactSet>();
+    for (const row of this.store.all<{ output_ref: string; input: string }>(`SELECT output_ref, input FROM step WHERE audit_id = ? AND kind = 'scope' AND status = 'succeeded' ORDER BY seq`, this.auditId)) {
+      out.set(fromJson<{ repo?: string }>(row.input, {}).repo ?? this.targetRepo.name, this.store.artifacts.getJson<ImpactSet>(row.output_ref));
+    }
+    return out;
+  }
+
+  /** Impact set of one target repository (default the first target), or null. */
+  impact(repoName = this.targetRepo.name): ImpactSet | null {
+    return this.impacts().get(repoName) ?? null;
   }
 
   repoByName(name: string | undefined): RepoInfo | undefined {
@@ -311,19 +340,41 @@ export class AuditRuntime {
     return stage ? stageModel(this.strategy, stage) : null;
   }
 
-  fallbackFor(step: Pick<StepRow, 'kind' | 'lineage_id' | 'model' | 'provider'>): { to: ModelRef; degraded: boolean } | null {
+  fallbackFor(step: Pick<StepRow, 'kind' | 'lineage_id' | 'model' | 'provider' | 'input'>): { to: ModelRef; degraded: boolean } | null {
     const stage = stepStage(step.kind, step.lineage_id);
     if (!stage) return null;
     const current = this.stepModel(step);
     if (!current) return null;
     const to = stageFallback(this.strategy, stage, this.store.config.fallbackModel, current);
     if (!to) return null;
-    // A crossed stage whose fallback is itself one of the cross models is degraded rather than replaced.
+    // A cross lane whose fallback is itself one of the cross models is degraded rather than replaced. Other
+    // steps of a crossed stage (lead, gap, recheck) give a single opinion and switch.
+    return { to, degraded: this.duplicatesCrossModel(step, to) };
+  }
+
+  /**
+   * The model a step switches to before it starts because the user chose “之后所有步骤” for the model it would run on;
+   * null when there is no switch, or when the step is a cross lane and the chosen model is another cross model.
+   */
+  laterSwitch(step: Pick<StepRow, 'kind' | 'lineage_id' | 'model' | 'provider' | 'input'>): { from: string; to: ModelRef } | null {
+    const current = this.stepModel(step);
+    if (!current) return null;
+    const from = `${current.provider}/${current.model}`;
+    let to = this.modelSwitches.get(from);
+    // A switch whose target was itself switched later follows the chain (bounded: each model is a key once).
+    for (let i = 0; to && i < this.modelSwitches.size; i++) to = this.modelSwitches.get(`${to.provider}/${to.model}`) ?? to;
+    if (!to || (to.provider === current.provider && to.model === current.model)) return null;
+    return this.duplicatesCrossModel(step, to) ? null : { from, to };
+  }
+
+  /** A cross lane of a crossed stage that would run on one of the other cross models. */
+  private duplicatesCrossModel(step: Pick<StepRow, 'kind' | 'lineage_id' | 'input'>, to: ModelRef): boolean {
+    const stage = stepStage(step.kind, step.lineage_id);
+    if (!stage || !isCrossLane(step)) return false;
     const crossed = stage === 'hunt' ? crossModels(this.strategy, 'hunt')
       : stage === 'logic' ? crossModels(this.strategy, 'threat') ?? crossModels(this.strategy, 'verify')
         : stage === 'challenge' ? crossModels(this.strategy, 'review') : null;
-    const degraded = !!crossed && crossed.some((m) => m.provider === to.provider && m.model === to.model);
-    return { to, degraded };
+    return !!crossed && crossed.some((m) => m.provider === to.provider && m.model === to.model);
   }
 
   /** Events raised inside an agent session carry its identity, so sub-agents can be told apart from their parent. */
@@ -613,7 +664,7 @@ export class AuditRuntime {
           onQuestion: (q) => {
             const id = newId('question');
             this.store.tx(() => {
-              this.store.insert('question', { id, audit_id: this.auditId, step_id: args.stepId, text: q.question, blocking: q.blocking ? 1 : 0, status: 'open' });
+              this.store.insert('question', { id, audit_id: this.auditId, step_id: args.stepId, text: q.question, blocking: q.blocking ? 1 : 0, status: 'open', options: answerOptions(q.options) });
               this.event('question.asked', { question_id: id, text: q.question.slice(0, 500), blocking: q.blocking }, args.stepId);
             });
             return id;

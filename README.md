@@ -17,19 +17,131 @@
 
 ## 安装
 
-需要 Node.js 22.19 或更高版本，以及 [ripgrep](https://github.com/BurntSushi/ripgrep)（`rg`）；git 可选（Git 来源与增量审计用到）。
+| 依赖 | 是否必需 | 用途 | 缺少时 |
+| --- | --- | --- | --- |
+| Node.js ≥ 22.19 | 必需 | 运行 CLI 与服务；内置 `node:sqlite` 存储审计数据 | 无法启动 |
+| ripgrep（`rg`） | 必需 | 代码搜索 | 无法发起审计 |
+| git | 推荐 | Git 仓库来源、按分支 / 提交快照、识别工作区版本 | Git 来源与 ref 快照不可用 |
+| 语言服务器（见下文） | 可选 | 定义跳转、引用查找更准确 | 退化为 tree-sitter，审计照常进行 |
+
+没有需要本机编译的原生模块（tree-sitter 以 WebAssembly 运行），不需要安装 Python、C/C++ 编译工具链。
+
+### 1. Node.js
+
+用版本管理器安装 Node.js 22 或更高版本（推荐 22 / 24 LTS；也可从 [nodejs.org](https://nodejs.org/) 下载安装包）：
+
+```bash
+fnm install 22 && fnm use 22
+```
+
+```bash
+node --version
+```
+
+应输出 `v22.19.0` 或更高。
+
+### 2. ripgrep 与 git
+
+macOS（Homebrew）：
+
+```bash
+brew install ripgrep git
+```
+
+Debian / Ubuntu（其他发行版用 dnf / apk / pacman 安装同名包）：
+
+```bash
+sudo apt install ripgrep git
+```
+
+Windows：
+
+```bash
+winget install BurntSushi.ripgrep.MSVC Git.Git
+```
+
+### 3. xiezhi-audit
 
 ```bash
 npm install -g xiezhi-audit@alpha
 ```
 
-安装不编译任何原生模块。安装后先运行 `xiezhi doctor` 检查环境，缺少的工具会给出安装命令。
+### 4. 语言服务器（可选）
 
-## 快速开始
+审计对应语言的仓库时才会用到，用于定义跳转、引用查找；没有安装时符号查询退化为 tree-sitter（精度较低），并在审计中记录 `INDEX_DEGRADED`，审计照常进行。只审计某一种语言时，只装那一种即可。
+
+Go（`gopls` 需要 Go 工具链加载包，两者都要有）：
+
+```bash
+brew install go
+```
+
+```bash
+go install golang.org/x/tools/gopls@latest
+```
+
+Linux 上 Go 建议从 [go.dev/dl](https://go.dev/dl/) 安装（发行版的 `golang-go` 往往较旧）。`go install` 把 `gopls` 放在 `~/go/bin`，自动查找会覆盖这个目录。
+
+Java（`jdtls` 需要 JDK 21 或更高，`java` 须在 `PATH` 中）：
+
+```bash
+brew install openjdk@21 jdtls
+```
+
+Linux 先安装 JDK（如 `sudo apt install openjdk-21-jdk`），再从 [Eclipse JDT LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls) 下载并解压发行包，把解压目录下的 `bin/jdtls` 填到设置里；这个启动脚本需要 Python 3。
+
+Python 与 JavaScript / TypeScript（两者都由 Node.js 运行）：
+
+```bash
+npm install -g pyright
+```
+
+```bash
+npm install -g typescript-language-server typescript
+```
+
+`pyright` 包会同时装上 `pyright-langserver`。
+
+### 5. 外部工具路径（设置 › 通用）
+
+Web 工作台“设置 › 通用 › 外部工具路径”中的每一项对应一个配置键。留空时自动查找：先找 `PATH`，语言服务器相关的几项还会查 `~/go/bin`、`/opt/homebrew/bin`、`/usr/local/bin`、`/usr/local/go/bin`、`/usr/bin`。只有装在别处、自动查找找不到时才需要填写，填写的必须是可执行文件的绝对路径。
+
+| 设置项 | 配置键 | 必要性 | 找不到时 |
+| --- | --- | --- | --- |
+| ripgrep（rg） | `tools.rgPath` | 必需 | 无法发起审计 |
+| git | `tools.gitPath` | 推荐 | Git 仓库来源、按分支 / 提交快照不可用 |
+| Go 语言服务器（gopls） | `tools.goplsPath` | 可选，审计 Go 时使用 | Go 符号查询退化为 tree-sitter |
+| Go 工具链（go） | `tools.goPath` | 使用 gopls 时必需 | gopls 不启动，Go 退化为 tree-sitter |
+| Java 语言服务器（jdtls） | `tools.jdtlsPath` | 可选，审计 Java 时使用 | Java 符号查询退化为 tree-sitter |
+| Python 语言服务器（pyright-langserver） | `tools.pyrightPath` | 可选，审计 Python 时使用 | Python 符号查询退化为 tree-sitter |
+| TypeScript 语言服务器（typescript-language-server） | `tools.tsLspPath` | 可选，审计 JS / TS 时使用 | JS / TS 符号查询退化为 tree-sitter |
+| node（语言服务器运行需要） | `tools.nodePath` | 使用 pyright 或 typescript-language-server 时必需 | 这两个语言服务器都不启动 |
+
+`node` 这一项只用于运行语言服务器，可以与运行 xiezhi 的 Node.js 不是同一个。`jdtls` 所用的 `java` 没有单独的设置项，须在 `PATH` 中。
+
+查到已安装工具的绝对路径后，在设置页填写，或用命令行：
+
+```bash
+command -v gopls
+```
+
+```bash
+xiezhi config set tools.goplsPath /absolute/path/to/gopls
+```
+
+设置是否生效，看“系统诊断”页或下面的 `doctor`。
+
+### 6. 检查环境
+
+`doctor` 逐项列出上面的依赖、数据目录、模型配置与磁盘空间，缺什么就给出对应平台的安装命令：
 
 ```bash
 xiezhi doctor
 ```
+
+## 快速开始
+
+先按上一节安装并检查环境，然后配置模型服务：
 
 ```bash
 xiezhi config add-provider gw --api openai-completions --base-url https://your-gateway/v1 --models your-model
@@ -84,8 +196,14 @@ xiezhi open
 
 ## 开发
 
+从源码构建需要 pnpm 10.28.2，用 corepack 启用仓库指定的版本（`package.json` 的 `packageManager`；Node.js 25 起先 `npm install -g corepack`）：
+
 ```bash
-pnpm install && pnpm build && pnpm typecheck && pnpm lint
+corepack enable
+```
+
+```bash
+pnpm install && pnpm build && pnpm typecheck && pnpm lint && pnpm test
 ```
 
 从源码运行时用 `node apps/cli/dist/main.js` 代替 `xiezhi`。`pnpm release:pack` 在 `release/` 下生成 npm 包（`release/xiezhi-audit/` 与 `xiezhi-audit-<版本>.tgz`），可用 `npm install -g ./release/xiezhi-audit-<版本>.tgz` 本地验证。

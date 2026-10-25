@@ -273,6 +273,11 @@ export const taskSlot = { waitMs: 20_000 };
  * to the parent, which submits. Usage counts against the parent step; at most TASK_PARALLEL run at once, the rest queue.
  */
 /** `scope`: the repository the dispatching session works on, and whether its sub-agents stay in it. */
+/** The `itemId=<key>` line of a checklist fill's scopeReviewed for an item, or null. */
+export function checklistConclusion(scope: string, key: string): string | null {
+  return scope.split('\n').map((l) => l.trim()).find((l) => l.includes(`itemId=${key}`) || l.includes(`itemId=\`${key}\``)) ?? null;
+}
+
 export function taskTool(rt: AuditRuntime, ctx: AttemptContext, model: ModelRef, scope: { repo?: string; ownRepoOnly?: boolean } = {}): AuditTool {
   let running = 0;
   // Calls beyond TASK_PARALLEL wait for a running one to finish: models dispatch several tasks in one turn without
@@ -400,7 +405,7 @@ export async function huntStep(rt: AuditRuntime, batch: Candidate[], lineage: st
   // models still put them in reviewedTargets / ruledOut although the prompt says not to. Such entries are dropped, not
   // refused: the batch settles these items itself, and refusing cost whole attempts (seen with claude-haiku-5-5).
   const notTargets = new Set([
-    ...batch.filter((c) => c.kind === 'change' || /^(checklist|external|explore|variant):/.test(c.id))
+    ...batch.filter((c) => c.kind === 'change' || /^(checklist|external|explore):/.test(c.id))
       .flatMap((c) => [c.id, `${c.repo}:${c.path}:${c.line}`, `${c.repo}:${c.path}`, c.path]),
     // listed hypotheses written into reviewedTargets (their verdicts go in `verdicts`).
     ...hyps.map((h) => h.id),
@@ -449,6 +454,7 @@ export async function huntStep(rt: AuditRuntime, batch: Candidate[], lineage: st
       ...validateFindings(rt, a),
       ...relatedRiskIssues(rt, a.findings as { relatedRisk?: string }[]),
       ...(hyps.length ? verdictIssues(hyps, (a as { verdicts?: HypothesisVerdictDraft[] }).verdicts ?? [], a.findings.length, (ref, label, read) => validateCodeRef(rt, ref, label, read), verdicted, opts.prior) : []),
+      ...checklistIssues((a as { scopeReviewed?: string }).scopeReviewed),
     ].slice(0, 30),
     run: (a: { findings: FindingDraft[]; reviewedTargets: { targetId: string }[]; ruledOut: { targetId: string }[]; verdicts?: HypothesisVerdictDraft[] }) => {
       for (const v of a.verdicts ?? []) verdicted.add(v.hypothesisId);
@@ -461,21 +467,32 @@ export async function huntStep(rt: AuditRuntime, batch: Candidate[], lineage: st
     description: P('tool.submit_state_update.hunt'),
     run: () => ({ text: 'recorded' }),
   };
+  // A checklist fill concludes item by item (one `itemId=` line each in scopeReviewed), not in one summary.
+  const checklistKeys = batch.filter((c) => c.id.startsWith('checklist:')).map((c) => c.id.slice('checklist:'.length));
+  const checklistIssues = (scope: string | undefined) => {
+    const missing = checklistKeys.filter((k) => !checklistConclusion(scope ?? '', k));
+    return missing.length ? [P('feedback.hunt.checklist_unanswered', { ids: missing.join(', ') })] : [];
+  };
   const indexed = batch.filter((c) => c.kind !== 'change');
   // the index candidates this batch owes a verdict on (variant / exploration targets are not listed in reviewedTargets).
   const known = indexTargets(rt);
-  const owed = hyps.length ? [] : indexed.filter((c) => !c.id.startsWith('variant:') && !c.id.startsWith('explore:') && known.has(c.id)).map((c) => c.id);
+  const owed = hyps.length ? [] : indexed.filter((c) => !c.id.startsWith('explore:') && known.has(c.id)).map((c) => c.id);
   const missingOwed = () => owed.filter((id) => !answered.has(id));
+  const changeFiles = batch.filter((c) => c.kind === 'change' && !/^(checklist|external|explore):/.test(c.id));
   const listing = [
     ...indexed.map((c) => `- id=\`${c.id}\`\n  位置：${c.repo}:${c.path}:${c.line}\n  ${c.label}${c.reason ? `\n  初筛：${c.llmScore}/5 ${c.reason}` : ''}`),
-    ...batch.filter((c) => c.kind === 'change' && !c.id.startsWith('checklist:') && !c.id.startsWith('external:')).map((c) => `- 变更文件：${c.repo}:${c.path}  ${c.label}`),
+    ...changeFiles.map((c) => `- 变更文件：${c.repo}:${c.path}  ${c.label}`),
   ].join('\n');
   // Incremental: the diff of the batch's changed files is part of the input,
   // and a `diff` tool gives the rest; callers of changed code are traced with grep/read.
-  const impact = rt.audit.scene === 'incremental' ? rt.impact() : null;
-  const changed = impact ? new Set([...impact.changedFiles.added, ...impact.changedFiles.modified, ...impact.changedFiles.renamed.map((r) => r.to)]) : null;
-  const diffs = changed ? [...new Set(batch.map((c) => c.path))].filter((p) => changed.has(p)).map((p) => renderFileDiff(rt, p)) : [];
-  const variantCands = batch.filter((c) => c.id.startsWith('variant:'));
+  // Each candidate's diff comes from its own repository's impact set.
+  const impacts = rt.audit.scene === 'incremental' ? rt.impacts() : null;
+  const impact = impacts?.size ? impacts : null;
+  const changedIn = (repo: string, p: string) => {
+    const c = impacts?.get(repo)?.changedFiles;
+    return !!c && !impacts!.get(repo)!.fallbackReasons.includes('no_baseline') && (c.added.includes(p) || c.modified.includes(p) || c.renamed.some((r) => r.to === p));
+  };
+  const diffs = impact ? [...new Map(batch.map((c) => [`${c.repo}:${c.path}`, c])).values()].filter((c) => changedIn(c.repo, c.path)).map((c) => renderFileDiff(rt, c.path, undefined, c.repo)) : [];
   // Deep-explore directions: a target chosen by the decide round, not an indexed candidate.
   const exploreCands = batch.filter((c) => c.id.startsWith('explore:'));
   const exploreLines = exploreCands.length ? [
@@ -489,17 +506,13 @@ export async function huntStep(rt: AuditRuntime, batch: Candidate[], lineage: st
   const checklistCands = batch.filter((c) => c.id.startsWith('checklist:'));
   const checklistLines = checklistCands.length ? [
     '', P('hunt.checklist_items'),
-    ...checklistCands.map((c) => `- ${c.repo}:${c.path}:${c.line}  ${c.label}`),
+    ...checklistCands.map((c) => `- itemId=\`${c.id.slice('checklist:'.length)}\`（从 ${c.repo}:${c.path} 开始）${c.label}`),
   ] : [];
   const incrementalLines = impact ? [
     '',
     P('hunt.incremental.intro'),
     ...(indexed.length === 0 ? [P('hunt.incremental.no_index')] : []),
     '', P('hunt.incremental.diff_heading'), diffs.length ? P('hunt.incremental.diff_attached') : P('hunt.incremental.no_diff'),
-    ...(variantCands.length ? [
-      '', P('hunt.incremental.variants'),
-      ...variantCands.map((c) => `- ${c.repo}:${c.path}:${c.line}  ${c.label}`),
-    ] : []),
   ] : [];
   const prompt = hyps.length ? [
     ...(opts.preface ?? []),
@@ -508,7 +521,8 @@ export async function huntStep(rt: AuditRuntime, batch: Candidate[], lineage: st
     P('hunt.verify.submit'),
   ].join('\n') : [
     ...(opts.preface ?? []),
-    P('hunt.batch.intro', { n: batch.length }),
+    // “以下 N 个候选” only when candidates are listed; batches of listed items alone say so.
+    indexed.length + changeFiles.length ? P('hunt.batch.intro', { n: indexed.length + changeFiles.length }) : P('hunt.batch.intro_items', { n: batch.length }),
     ...(indexed.length ? [P('hunt.batch.mark')] : []),
     P('hunt.batch.submit'),
     '',
