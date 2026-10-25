@@ -123,6 +123,9 @@ export interface LoadSkillResult { name: string; file: string; page: number; pag
 
 /** load_skill(name, file?, page?) over frozen content only. */
 export function loadFrozenSkill(frozen: FrozenKnowledge, readable: Set<string>, artifacts: ArtifactStore, args: { name: string; file?: string; page?: number }): LoadSkillResult {
+  // The index line is `- name (category)`; gpt-6-luna passed the category as `name` and the skill as `file`.
+  const swapped = !readable.has(args.name) && args.file && readable.has(args.file.trim()) && frozen.skills.some((s) => s.category === args.name);
+  if (swapped) args = { name: args.file!.trim(), page: args.page };
   const f = frozen.skills.find((s) => s.name === args.name);
   if (!f || !readable.has(args.name)) throw new Error(`skill "${args.name}" is not available in this session`);
   // An empty string is how some models "omit" an optional argument. A skill with one file has nothing else to read:
