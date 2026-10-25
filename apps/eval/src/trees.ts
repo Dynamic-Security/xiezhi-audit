@@ -12,7 +12,7 @@ export interface TreeRef { origin: string; commit?: string | undefined }
 export interface RemoteTree { dir: string; rootHash: string }
 
 export interface RemoteOptions {
-  /** Cache root; default `XIEZHI_AUDIT_BENCH_CACHE`, else `<bench>/.cache` (ignored by the bench repository). */
+  /** Cache root; default `XIEZHI_AUDIT_BENCH_CACHE`, else `<bench>/.cache`. */
   cacheDir?: string;
   /** Never fetch: trees that are not cached yet are reported as missing. */
   offline?: boolean;
